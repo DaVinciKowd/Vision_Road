@@ -65,6 +65,7 @@ flutter:
   assets:
     - assets/app_logo.png
     - assets/show_password.png
+    - assets/back_button.png
 
   fonts:
    - family: Inter
