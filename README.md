@@ -19,7 +19,7 @@ Bachelor of Science in Computer Engineering
 
 # Software
 
-The software developed for this study is titled **[Vision Road]**.  
+The software developed for this study is titled **Vision Road**.  
 
 
 ## Project Description
