@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'sign_up_screen.dart';
 import 'forgot_password.dart';
-
+import 'package:flutter_svg/flutter_svg.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -19,12 +19,11 @@ class _SignInScreenState extends State<SignInScreen> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0), // left & right padding
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: SingleChildScrollView(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, // left align texts
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
                 const SizedBox(height: 40),
 
                 // Logo
@@ -62,7 +61,7 @@ class _SignInScreenState extends State<SignInScreen> {
 
                 const SizedBox(height: 20),
 
-                // "Sign In" text
+                // Sign In Title
                 const Text(
                   'Sign In',
                   style: TextStyle(
@@ -72,26 +71,22 @@ class _SignInScreenState extends State<SignInScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 1),
-
-                // "Please sign in to continue"
                 const Text(
                   'Please sign in to continue',
                   style: TextStyle(
                     fontSize: 18,
-                    fontFamily:'Inter',
+                    fontFamily: 'Inter',
                     fontWeight: FontWeight.w400,
-                    color: Color(0xFF000000),
                   ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 15),
 
-                // Username TextField
+                // Username Field
                 Container(
                   height: 45,
                   decoration: BoxDecoration(
-                    color: const Color(0x30ABADAE), // ABADAE with 30% opacity
+                    color: const Color(0x30ABADAE),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -101,7 +96,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     decoration: InputDecoration(
                       hintText: 'Username',
                       hintStyle: TextStyle(
-                        color: Color(0x4D0C2737), // 30% opacity
+                        color: Color(0x4D0C2737),
                         fontSize: 15,
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w400,
@@ -113,19 +108,22 @@ class _SignInScreenState extends State<SignInScreen> {
 
                 const SizedBox(height: 15),
 
-                // Password TextField
+                // Password Field with Custom Icons & Circular Tap Effect
                 Container(
                   height: 45,
                   decoration: BoxDecoration(
-                    color: const Color(0x30ABADAE), // ABADAE with 30% opacity
+                    color: const Color(0x30ABADAE),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   alignment: Alignment.center,
                   child: TextField(
-                    style: const TextStyle(color: Color(0xFF0C2737), fontSize: 15),
+                    style: const TextStyle(
+                      color: Color(0xFF0C2737),
+                      fontSize: 15,
+                    ),
                     obscureText: _obscurePassword,
-                    textAlignVertical:TextAlignVertical.center,
+                    textAlignVertical: TextAlignVertical.center,
                     decoration: InputDecoration(
                       hintText: 'Password',
                       hintStyle: const TextStyle(
@@ -135,24 +133,37 @@ class _SignInScreenState extends State<SignInScreen> {
                         fontWeight: FontWeight.w400,
                       ),
                       border: InputBorder.none,
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                          color: Colors.grey,
+                      // Suffix icon with circular ripple and padding
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(left: 12.0),
+                        child: Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Image.asset(
+                                _obscurePassword
+                                    ? 'assets/view-icon.png'
+                                    : 'assets/hide-icon.png',
+                                width: 26,
+                                height: 26,
+                              ),
+                            ),
+                          ),
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
                       ),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 0.1),
-
-                // Forgot Password text
+                // Forgot Password
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -206,14 +217,13 @@ class _SignInScreenState extends State<SignInScreen> {
 
                 const SizedBox(height: 15),
 
-                // "Don't have an account? Sign Up" with clickable Sign Up
+                // Sign Up Redirect
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
                       "Don't have an account? ",
                       style: TextStyle(
-                        color: Colors.black,
                         fontSize: 15,
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.w500,
@@ -223,11 +233,13 @@ class _SignInScreenState extends State<SignInScreen> {
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const SignUpScreen()),
+                          MaterialPageRoute(
+                            builder: (context) => const SignUpScreen(),
+                          ),
                         );
                       },
                       child: const Text(
-                        "Sign Up",
+                        'Sign Up',
                         style: TextStyle(
                           color: Color(0xFF21709D),
                           fontSize: 14,

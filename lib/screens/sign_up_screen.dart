@@ -51,6 +51,38 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
+  Widget _buildPasswordField() {
+    return _buildTextField(
+      hint: 'Password',
+      isPassword: true,
+      suffixIcon: Padding(
+        padding: const EdgeInsets.only(left: 12.0),
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () {
+              setState(() {
+                _obscurePassword = !_obscurePassword;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Image.asset(
+                _obscurePassword
+                    ? 'assets/view-icon.png'
+                    : 'assets/hide-icon.png',
+                width: 26,
+                height: 26,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,24 +179,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                 const SizedBox(height: 15),
 
-                /// Password
-                _buildTextField(
-                  hint: 'Password',
-                  isPassword: true,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                  ),
-                ),
+                /// Password (custom icon like Sign In page)
+                _buildPasswordField(),
 
                 const SizedBox(height: 25),
 

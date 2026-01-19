@@ -232,6 +232,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       color: Colors.white,
                       fontSize: 20,
                       fontFamily: 'Inter',
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ),

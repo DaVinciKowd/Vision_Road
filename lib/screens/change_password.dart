@@ -29,7 +29,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     required VoidCallback toggleObscure,
   }) {
     return Container(
-      height: 50,
+      height: 45,
       decoration: BoxDecoration(
         color: const Color(0x30ABADAE),
         borderRadius: BorderRadius.circular(20),
@@ -53,12 +53,26 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             fontWeight: FontWeight.w400,
           ),
           border: InputBorder.none,
-          suffixIcon: IconButton(
-            icon: Icon(
-              obscureText ? Icons.visibility_off : Icons.visibility,
-              color: Colors.grey,
+          suffixIcon: Padding(
+            padding: const EdgeInsets.only(left: 12.0),
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: toggleObscure,
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Image.asset(
+                    obscureText
+                        ? 'assets/view-icon.png'
+                        : 'assets/hide-icon.png',
+                    width: 26,
+                    height: 26,
+                  ),
+                ),
+              ),
             ),
-            onPressed: toggleObscure,
           ),
         ),
       ),
@@ -142,7 +156,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               const SizedBox(height: 25),
 
-              /// Sign In Button
+              /// Change Password Button
               SizedBox(
                 width: double.infinity,
                 height: 49,
@@ -177,6 +191,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       color: Colors.white,
                       fontSize: 20,
                       fontFamily: 'Inter',
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ),
