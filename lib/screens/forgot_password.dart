@@ -23,19 +23,15 @@ class ForgotPasswordScreen extends StatelessWidget {
                 onTap: () {
                   Navigator.pop(context);
                 },
+                
                 child: Image.asset(
                   'assets/back_button.png',
                   width: 26,
                   height: 26,
                 ),
+                
               ),
-              //IconButton(
-                //onPressed: () {
-                  //Navigator.pop(context); // Go back to Sign In
-                //},
-                //icon: const Icon(Icons.arrow_back),
-              //),
-
+    
               const SizedBox(height: 30),
 
               /// Title

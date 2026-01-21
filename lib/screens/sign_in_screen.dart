@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'sign_up_screen.dart';
 import 'forgot_password.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'homepage.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -195,7 +196,10 @@ class _SignInScreenState extends State<SignInScreen> {
                   height: 49,
                   child: ElevatedButton(
                     onPressed: () {
-                      // TODO: Add sign in logic
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (context)=> const HomePage()),
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF21709D),

@@ -46,6 +46,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  image_picker: ^0.8.7+6
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -65,13 +66,21 @@ flutter:
 
   assets:
     - assets/app_logo.png
-    - assets/view.png
-    - assets/hide.png
     - assets/back_button.png
-    - assets/hide_icon.svg
-    - assets/view_icon.svg
     - assets/hide-icon.png
     - assets/view-icon.png
+    - assets/back-icon.png
+    - assets/header_bg.png
+    - assets/maps-pin.png
+    - assets/profile.png
+    - assets/drive.png
+    - assets/location.png
+    - assets/user_header.png
+    - assets/user2.png
+    - assets/back-white.png
+    - assets/arc.png
+    - assets/icon-user.png
+    - assets/edit.png
   
 
   fonts:
