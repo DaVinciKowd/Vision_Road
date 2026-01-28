@@ -150,68 +150,16 @@ class _UserProfileState extends State<UserProfile> {
                       color: Color(0xFF21709D),
                     ),
                   ),
-          /// ================= USERNAME =================
-          Text(
-            _username,
-            style: const TextStyle(
-              fontSize: 36,
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF21709D),
-            ),
-          ),
-
                   const SizedBox(height: 18),
-
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // EMAIL LABEL
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4),
-                          child: Text(
-                            'Email',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF21709D),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-
-                        // EMAIL FIELD
-                        Container(
-                          width: MediaQuery.of(context).size.width * 0.75,
-                          height: 45,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0x4DABADAE),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            user.email,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontFamily: 'Inter',
-                              color: Color(0x4D0C2737),
-                            ),
-                          ),
-                        ),
-          /// ================= MAIN CONTENT =================
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.onDrag,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                   // EMAIL LABEL
                   const Padding(
                     padding: EdgeInsets.only(left: 4),
@@ -236,7 +184,7 @@ class _UserProfileState extends State<UserProfile> {
                     ),
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _email,
+                      user.email,
                       style: const TextStyle(
                         fontSize: 14,
                         fontFamily: 'Inter',
@@ -244,44 +192,7 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
-                        const SizedBox(height: 10),
                   const SizedBox(height: 10),
-
-                        // PHONE LABEL
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4),
-                          child: Text(
-                            'Phone Number',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF21709D),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-
-                        // PHONE FIELD
-                        Container(
-                          width: MediaQuery.of(context).size.width * 0.75,
-                          height: 45,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0x4DABADAE),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            user.phoneNumber,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontFamily: 'Inter',
-                              color: Color(0x4D0C2737),
-                            ),
-                          ),
-                        ),
                   // PHONE LABEL
                   const Padding(
                     padding: EdgeInsets.only(left: 4),
@@ -306,7 +217,7 @@ class _UserProfileState extends State<UserProfile> {
                     ),
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _phone,
+                      user.phoneNumber,
                       style: const TextStyle(
                         fontSize: 14,
                         fontFamily: 'Inter',
@@ -314,9 +225,7 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 78),
-
                   // EDIT PROFILE BUTTON
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.75,
@@ -356,48 +265,18 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
-                        // LOG OUT BUTTON
-                        SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.75,
-                          height: 45,
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              await authProvider.signOut();
-                              if (context.mounted) {
-                                Navigator.of(context).popUntil((route) => route.isFirst);
-                              }
-                            },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF0000),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text(
-                      'Log Out',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontFamily: 'Inter',
-                        color: Colors.white,
-                      ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
                   // LOG OUT BUTTON
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.75,
                     height: 45,
                     child: ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () async {
+                        await authProvider.signOut();
+                        if (context.mounted) {
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF0000),
                         shape: RoundedRectangleBorder(
@@ -414,10 +293,13 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
