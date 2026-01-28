@@ -1,8 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'user_profile.dart'; // import UserProfile screen
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  File? _profileImage; // store user profile image
 
   String getGreeting() {
     final hour = DateTime.now().hour;
@@ -117,18 +125,35 @@ class HomePage extends StatelessWidget {
 
                   // PROFILE ICON NAVIGATES TO USER PROFILE
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
+                    onTap: () async {
+                      // Navigate to UserProfile and wait for updated image
+                      final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const UserProfile(),
                         ),
                       );
+
+                      // If UserProfile returns an updated image, update it
+                      if (result != null && result is File) {
+                        setState(() {
+                          _profileImage = result;
+                        });
+                      }
                     },
-                    child: Image.asset(
-                      'assets/profile.png',
-                      width: 32,
-                      height: 32,
+                    child: ClipOval(
+                      child: _profileImage != null
+                          ? Image.file(
+                              _profileImage!,
+                              width: 32,
+                              height: 32,
+                              fit: BoxFit.cover,
+                            )
+                          : Image.asset(
+                              'assets/profile.png',
+                              width: 32,
+                              height: 32,
+                            ),
                     ),
                   ),
                 ],
@@ -141,9 +166,7 @@ class HomePage extends StatelessWidget {
             right: 17,
             bottom: MediaQuery.of(context).padding.bottom + 53 + 16 + 10,
             child: GestureDetector(
-              onTap: () {
-                // handle location tap
-              },
+              onTap: () {},
               child: Container(
                 width: 55,
                 height: 55,
@@ -154,7 +177,7 @@ class HomePage extends StatelessWidget {
                     BoxShadow(
                       color: const Color(0x40000000),
                       blurRadius: 4,
-                      offset: const Offset(0, 4),
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
@@ -174,9 +197,7 @@ class HomePage extends StatelessWidget {
             right: 17,
             bottom: MediaQuery.of(context).padding.bottom + 53 + 16 + 10 + 65,
             child: GestureDetector(
-              onTap: () {
-                // handle drive button tap
-              },
+              onTap: () {},
               child: Container(
                 width: 55,
                 height: 55,

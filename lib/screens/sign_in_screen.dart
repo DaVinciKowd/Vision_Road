@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'sign_up_screen.dart';
 import 'forgot_password.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'homepage.dart';
 import '../providers/auth_provider.dart';
 
