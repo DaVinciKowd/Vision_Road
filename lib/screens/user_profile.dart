@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'edit_profile.dart';
+import '../providers/auth_provider.dart';
 
 class UserProfile extends StatelessWidget {
   const UserProfile({super.key});
@@ -99,95 +101,106 @@ class UserProfile extends StatelessWidget {
           const SizedBox(height: 8),
 
           /// ================= MAIN CONTENT =================
-          const Text(
-            'Username',
-            style: TextStyle(
-              fontSize: 36,
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF21709D),
-            ),
-          ),
+          Consumer<AuthProvider>(
+            builder: (context, authProvider, _) {
+              final user = authProvider.currentUser;
+              
+              if (user == null) {
+                return const Center(
+                  child: Text('No user data available'),
+                );
+              }
 
-          const SizedBox(height: 18),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, // align labels to left
-              children: [
-
-                // EMAIL LABEL
-                const Padding(
-                  padding: EdgeInsets.only(left: 4), // adjust left spacing
-                  child: Text(
-                    'Email',
-                    style: TextStyle(
-                      fontSize: 14,
+              return Column(
+                children: [
+                  Text(
+                    user.username,
+                    style: const TextStyle(
+                      fontSize: 36,
                       fontFamily: 'Inter',
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w900,
                       color: Color(0xFF21709D),
                     ),
                   ),
-                ),
-                const SizedBox(height: 4),
 
-                // EMAIL FIELD
-                Container(
-                  width: MediaQuery.of(context).size.width * 0.75,
-                  height: 45,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: const Color(0x4DABADAE),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  alignment: Alignment.centerLeft,
-                  child: const Text(
-                    'Useremailadd@gmail.com',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontFamily: 'Inter',
-                      color: Color(0x4D0C2737),
-                    ),
-                  ),
-                ),
+                  const SizedBox(height: 18),
 
-                const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // EMAIL LABEL
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Text(
+                            'Email',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF21709D),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
 
-                // PHONE LABEL
-                const Padding(
-                  padding: EdgeInsets.only(left: 4), // adjust left spacing
-                  child: Text(
-                    'Phone Number',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF21709D),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
+                        // EMAIL FIELD
+                        Container(
+                          width: MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: const Color(0x4DABADAE),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            user.email,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'Inter',
+                              color: Color(0x4D0C2737),
+                            ),
+                          ),
+                        ),
 
-                // PHONE FIELD
-                Container(
-                  width: MediaQuery.of(context).size.width * 0.75,
-                  height: 45,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: const Color(0x4DABADAE),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  alignment: Alignment.centerLeft,
-                  child: const Text(
-                    '0531 652 1234',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontFamily: 'Inter',
-                      color: Color(0x4D0C2737),
-                    ),
-                  ),
-                ),
+                        const SizedBox(height: 10),
+
+                        // PHONE LABEL
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Text(
+                            'Phone Number',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF21709D),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+
+                        // PHONE FIELD
+                        Container(
+                          width: MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: const Color(0x4DABADAE),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            user.phoneNumber,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'Inter',
+                              color: Color(0x4D0C2737),
+                            ),
+                          ),
+                        ),
 
                 const SizedBox(height: 78),
 
@@ -223,12 +236,17 @@ class UserProfile extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
-                // LOG OUT BUTTON
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.75,
-                  height: 45,
-                  child: ElevatedButton(
-                    onPressed: () {},
+                        // LOG OUT BUTTON
+                        SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              await authProvider.signOut();
+                              if (context.mounted) {
+                                Navigator.of(context).popUntil((route) => route.isFirst);
+                              }
+                            },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFF0000),
                       shape: RoundedRectangleBorder(
@@ -242,11 +260,15 @@ class UserProfile extends StatelessWidget {
                         fontFamily: 'Inter',
                         color: Colors.white,
                       ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ],
       ),
