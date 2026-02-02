@@ -81,6 +81,10 @@ flutter:
     - assets/arc.png
     - assets/icon-user.png
     - assets/edit.png
+    - assets/notice.png
+    - assets/red-pin.png
+    - assets/green-check.png
+    - assets/alert.png
   
 
   fonts:
