@@ -2,6 +2,10 @@
 class AppConstants {
   // API Configuration
   static const String apiBaseUrl = 'https://api.visionroad.com/api/v1';
+
+  // Supabase Configuration (replace with your project values from Supabase dashboard)
+  static const String supabaseUrl = 'https://your-project.supabase.co';
+  static const String supabaseAnonKey = 'your-anon-key';
   
   // STAR Tollway approximate bounds (TODO: Replace with actual coordinates)
   static const double starTollwayMinLat = 13.5;

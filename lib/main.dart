@@ -4,8 +4,11 @@ import 'screens/splash_screen.dart';
 import 'providers/auth_provider.dart';
 import 'providers/hazard_provider.dart';
 import 'providers/location_provider.dart';
+import 'services/supabase_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SupabaseService.initialize();
   runApp(const VisionRoadApp());
 }
 
