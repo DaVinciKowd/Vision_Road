@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'edit_profile.dart';
+import '../providers/auth_provider.dart';
 
 class UserProfile extends StatefulWidget {
   const UserProfile({super.key});
@@ -126,29 +128,38 @@ class _UserProfileState extends State<UserProfile> {
 
           const SizedBox(height: 8),
 
-          /// ================= USERNAME =================
-          Text(
-            _username,
-            style: const TextStyle(
-              fontSize: 36,
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF21709D),
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
           /// ================= MAIN CONTENT =================
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.onDrag,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          Consumer<AuthProvider>(
+            builder: (context, authProvider, _) {
+              final user = authProvider.currentUser;
+              
+              if (user == null) {
+                return const Center(
+                  child: Text('No user data available'),
+                );
+              }
+
+              return Column(
                 children: [
+                  Text(
+                    user.username,
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF21709D),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                   // EMAIL LABEL
                   const Padding(
                     padding: EdgeInsets.only(left: 4),
@@ -173,7 +184,7 @@ class _UserProfileState extends State<UserProfile> {
                     ),
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _email,
+                      user.email,
                       style: const TextStyle(
                         fontSize: 14,
                         fontFamily: 'Inter',
@@ -181,9 +192,7 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
                   // PHONE LABEL
                   const Padding(
                     padding: EdgeInsets.only(left: 4),
@@ -208,7 +217,7 @@ class _UserProfileState extends State<UserProfile> {
                     ),
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _phone,
+                      user.phoneNumber,
                       style: const TextStyle(
                         fontSize: 14,
                         fontFamily: 'Inter',
@@ -216,9 +225,7 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 78),
-
                   // EDIT PROFILE BUTTON
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.75,
@@ -258,15 +265,18 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
                   // LOG OUT BUTTON
                   SizedBox(
                     width: MediaQuery.of(context).size.width * 0.75,
                     height: 45,
                     child: ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () async {
+                        await authProvider.signOut();
+                        if (context.mounted) {
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF0000),
                         shape: RoundedRectangleBorder(
@@ -283,10 +293,13 @@ class _UserProfileState extends State<UserProfile> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
