@@ -56,6 +56,7 @@ dependencies:
   # Image Processing (for object detection)
   image: ^4.1.3
 
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -104,6 +105,9 @@ flutter:
     - assets/red-pin.png
     - assets/green-check.png
     - assets/alert.png
+    - assets/hazard_type.png
+    - assets/drive-dark.png
+    - assets/map-placeholder.png
   
 
   fonts:
