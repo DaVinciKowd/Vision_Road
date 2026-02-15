@@ -1,9 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'user_profile.dart';
+import 'drive_route.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final bool pickingCurrentLocation;
+
+  const HomePage({
+    super.key,
+    this.pickingCurrentLocation = false,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -14,7 +20,8 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _searchController = TextEditingController();
   bool _showResults = false;
 
-  // Sample keywords for search
+  String? _selectedDestination;
+
   final List<String> _keywords = [
     'star',
     'tollway',
@@ -22,20 +29,19 @@ class _HomePageState extends State<HomePage> {
     'autosweep',
   ];
 
+  final List<Map<String, dynamic>> _stateHistory = [];
+
   @override
   void initState() {
     super.initState();
 
-    // 🔥 Listen to text changes
     _searchController.addListener(() {
       final query = _searchController.text.toLowerCase().trim();
-
       setState(() {
         if (query.isEmpty) {
           _showResults = false;
         } else {
-          _showResults =
-              _keywords.any((word) => query.contains(word));
+          _showResults = _keywords.any((word) => query.contains(word));
         }
       });
     });
@@ -62,7 +68,6 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // Get results filtered by search query
   List<String> _getResults() {
     final query = _searchController.text.toLowerCase().trim();
     if (query.isEmpty) return [];
@@ -73,6 +78,28 @@ class _HomePageState extends State<HomePage> {
     ].where((item) => item.toLowerCase().contains(query)).toList();
   }
 
+  void _saveCurrentState() {
+    _stateHistory.add({
+      'showResults': _showResults,
+      'selectedDestination': _selectedDestination,
+      'searchText': _searchController.text,
+    });
+  }
+
+  void _restorePreviousState({int steps = 1}) {
+    if (_stateHistory.length >= steps) {
+      Map<String, dynamic>? state;
+      for (int i = 0; i < steps; i++) {
+        state = _stateHistory.removeLast();
+      }
+      setState(() {
+        _showResults = state?['showResults'] ?? false;
+        _selectedDestination = state?['selectedDestination'];
+        _searchController.text = state?['searchText'] ?? '';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
@@ -80,13 +107,10 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: () {
-          FocusScope.of(context).unfocus(); // 👈 CLOSE KEYBOARD
-        },
+        onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
 
-            // MAP PLACEHOLDER
             Container(
               color: Colors.grey.shade300,
               child: const Center(
@@ -94,7 +118,6 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            // HEADER
             Container(
               width: double.infinity,
               height: 187,
@@ -130,7 +153,6 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            // SEARCH BAR (default position)
             if (!_showResults)
               Positioned(
                 left: 17,
@@ -139,21 +161,38 @@ class _HomePageState extends State<HomePage> {
                 child: _buildSearchBar(),
               ),
 
-            // LOCATION BUTTON
             Positioned(
               right: 17,
               bottom: bottomPadding + 79,
               child: _circleButton('assets/location.png', 36),
             ),
 
-            // DRIVE BUTTON
+            
             Positioned(
               right: 17,
               bottom: bottomPadding + 154,
-              child: _circleButton('assets/drive.png', 28),
+              child: GestureDetector(
+                onTap: _selectedDestination == null
+                    ? null
+                    : () async {
+                        _saveCurrentState();
+                        final stepsBack = await Navigator.push<int>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DriveRoutePage(
+                              destination: _selectedDestination!,
+                            ),
+                          ),
+                        );
+
+                        if (stepsBack != null) {
+                          _restorePreviousState(steps: stepsBack);
+                        }
+                      },
+                child: _circleButton('assets/drive.png', 28),
+              ),
             ),
 
-            // RESULTS POPUP BANNER
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
@@ -179,7 +218,6 @@ class _HomePageState extends State<HomePage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
 
-                      // SEARCH BAR IN BANNER
                       SizedBox(
                         width: MediaQuery.of(context).size.width - 34,
                         child: _buildSearchBar(inBanner: true),
@@ -187,12 +225,19 @@ class _HomePageState extends State<HomePage> {
 
                       const SizedBox(height: 20),
 
-                      // RESULTS
                       ..._getResults().map(
                         (item) => GestureDetector(
                           onTap: () {
-                            _searchController.text = item;
-                            setState(() => _showResults = false);
+                            if (widget.pickingCurrentLocation) {
+                              Navigator.pop(context, item);
+                            } else {
+                              _saveCurrentState();
+                              setState(() {
+                                _selectedDestination = item;
+                                _searchController.text = item;
+                                _showResults = false;
+                              });
+                            }
                           },
                           child: _buildResultItem(item),
                         ),
@@ -208,7 +253,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // SEARCH BAR
   Widget _buildSearchBar({bool inBanner = false}) {
     return Container(
       height: 50,
@@ -262,7 +306,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // RESULT ITEM
   Widget _buildResultItem(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
@@ -279,7 +322,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // CIRCLE BUTTON
   Widget _circleButton(String asset, double size) {
     return Container(
       width: 55,

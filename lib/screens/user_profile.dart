@@ -139,170 +139,196 @@ class _UserProfileState extends State<UserProfile> {
                 );
               }
 
-              return Column(
-                children: [
-                  Text(
-                    user.username,
-                    style: const TextStyle(
-                      fontSize: 36,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF21709D),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                  // EMAIL LABEL
-                  const Padding(
-                    padding: EdgeInsets.only(left: 4),
-                    child: Text(
-                      'Email',
-                      style: TextStyle(
-                        fontSize: 14,
+              return Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      user.username,
+                      style: const TextStyle(
+                        fontSize: 36,
                         fontFamily: 'Inter',
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w900,
                         color: Color(0xFF21709D),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: MediaQuery.of(context).size.width * 0.75,
-                    height: 45,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    decoration: BoxDecoration(
-                      color: const Color(0x4DABADAE),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      user.email,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontFamily: 'Inter',
-                        color: Color(0x4D0C2737),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  // PHONE LABEL
-                  const Padding(
-                    padding: EdgeInsets.only(left: 4),
-                    child: Text(
-                      'Phone Number',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF21709D),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: MediaQuery.of(context).size.width * 0.75,
-                    height: 45,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    decoration: BoxDecoration(
-                      color: const Color(0x4DABADAE),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      user.phoneNumber,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontFamily: 'Inter',
-                        color: Color(0x4D0C2737),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 78),
-                  // EDIT PROFILE BUTTON
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.75,
-                    height: 45,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final updatedData = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const EditProfile(),
-                          ),
-                        );
 
-                        if (updatedData != null &&
-                            updatedData is Map<String, dynamic>) {
-                          setState(() {
-                            _profileImage = updatedData['image'] as File?;
-                            _username = updatedData['username'] ?? _username;
-                            _email = updatedData['email'] ?? _email;
-                            _phone = updatedData['phone'] ?? _phone;
-                          });
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD9D9D9),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                    const SizedBox(height: 18),
+
+                    //scrollable content
+
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // EMAIL LABEL
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: Text(
+                                'Email',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF21709D),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 4),
+                            
+                            Container(
+                              width: 
+                                  MediaQuery.of(context).size.width * 0.75,
+                              height: 45,
+                              padding: 
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              decoration: BoxDecoration(
+                                color: const Color(0x4DABADAE),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                user.email,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontFamily: 'Inter',
+                                  color: Color(0x4D0C2737),
+                                ),
+                              ),
+                            ),
+                  
+                            const SizedBox(height: 10),
+
+                            // PHONE LABEL
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: Text(
+                                'Phone Number',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF21709D),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 4),
+                            
+                            Container(
+                            width: 
+                                MediaQuery.of(context).size.width * 0.75,
+                            height: 45,
+                            padding: 
+                                const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color: const Color(0x4DABADAE),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                            user.phoneNumber,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'Inter',
+                              color: Color(0x4D0C2737),
+                            ),
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'Edit Profile',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontFamily: 'Inter',
-                          color: Colors.black,
+
+                        const SizedBox(height: 78),
+
+                        // EDIT PROFILE BUTTON
+                        SizedBox(
+                          width: 
+                              MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              final updatedData = 
+                                  await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const EditProfile(),
+                                ),
+                              );
+
+                              if (updatedData != null &&
+                                  updatedData 
+                                      is Map<String, dynamic>) {
+                                setState(() {
+                                  _profileImage = 
+                                      updatedData['image'] as File?;
+                                  _username = updatedData['username'] ?? 
+                                      _username;
+                                  _email = updatedData['email'] ?? _email;
+                                  _phone = updatedData['phone'] ?? _phone;
+                                });
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD9D9D9),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text(
+                              'Edit Profile',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontFamily: 'Inter',
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+
+                        const SizedBox(height: 16),
+                        // LOG OUT BUTTON
+                        SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              await authProvider.signOut();
+                              if (context.mounted) {
+                                Navigator.of(context).popUntil((route) => route.isFirst);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF0000),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text(
+                              'Log Out',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontFamily: 'Inter',
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  // LOG OUT BUTTON
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.75,
-                    height: 45,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await authProvider.signOut();
-                        if (context.mounted) {
-                          Navigator.of(context).popUntil((route) => route.isFirst);
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF0000),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                      child: const Text(
-                        'Log Out',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontFamily: 'Inter',
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
+                ),
+              ],
+            ),
+          );
+        },
       ),
-    );
-  }
+    ],
+  ),
+);
+}
 }
