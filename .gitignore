@@ -73,3 +73,6 @@ doc/api/
 
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Firebase config (do not commit real credentials)
+android/app/google-services.json
