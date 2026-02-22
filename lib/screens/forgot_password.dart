@@ -83,7 +83,7 @@ class ForgotPasswordScreen extends StatelessWidget {
                       fontWeight: FontWeight.w400,
                     ),
                     border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical:14),
+                    contentPadding: EdgeInsets.symmetric(vertical:14),
                   ),
                 ),
               ),
