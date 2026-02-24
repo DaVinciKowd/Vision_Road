@@ -1,5 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:geolocator/geolocator.dart'; // Added for Geolocation
 import 'user_profile.dart';
 import 'drive_route.dart';
 
@@ -19,22 +22,28 @@ class _HomePageState extends State<HomePage> {
   File? _profileImage;
   final TextEditingController _searchController = TextEditingController();
   bool _showResults = false;
-
   String? _selectedDestination;
 
-  final List<String> _keywords = [
-    'star',
-    'tollway',
-    'batangas',
-    'autosweep',
-  ];
+  // --- GOOGLE MAPS & LOCATION STATE ---
+  late GoogleMapController mapController;
+  
+  // Default fallback (Batangas), updated immediately by Geolocation
+  LatLng _userPosition = const LatLng(13.7565, 121.0583); 
+  
+  Set<Marker> _markers = {};
+  Set<Polyline> _polylines = {};
 
+  final List<String> _keywords = ['star', 'tollway', 'batangas', 'autosweep'];
   final List<Map<String, dynamic>> _stateHistory = [];
+
+  // Replace with your actual key
+  final String myApiKey = "AIzaSyBZSCo5G33DqWNFSYD-6Ggu7YMlsi99xiY";
 
   @override
   void initState() {
     super.initState();
-
+    _determinePosition(); // Trigger GPS on start
+    
     _searchController.addListener(() {
       final query = _searchController.text.toLowerCase().trim();
       setState(() {
@@ -47,10 +56,107 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  // --- GEOLOCATION LOGIC ---
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Check if location services are enabled
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint('Location services are disabled.');
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        debugPrint('Location permissions are denied');
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      debugPrint('Location permissions are permanently denied.');
+      return;
+    }
+
+    // Get live position
+    Position position = await Geolocator.getCurrentPosition();
+    setState(() {
+      _userPosition = LatLng(position.latitude, position.longitude);
+    });
+
+    // Animate camera to the user's live location
+    mapController.animateCamera(CameraUpdate.newLatLngZoom(_userPosition, 14));
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // --- UPDATED HELPER FUNCTION FOR REAL ROAD ROUTES ---
+  void _setDestination(LatLng position, String label) async {
+    setState(() {
+      _selectedDestination = label;
+      _searchController.text = label;
+      _markers = {
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: position,
+          infoWindow: InfoWindow(title: label),
+        ),
+      };
+    });
+
+    PolylinePoints polylinePoints = PolylinePoints(apiKey: myApiKey);
+    
+    // FETCH ROUTE: Now using _userPosition as the Origin
+    PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
+      request: PolylineRequest(
+        origin: PointLatLng(_userPosition.latitude, _userPosition.longitude),
+        destination: PointLatLng(position.latitude, position.longitude),
+        mode: TravelMode.driving,
+      ),
+    );
+
+    if (result.points.isNotEmpty) {
+      List<LatLng> roadPoints = result.points
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
+
+      setState(() {
+        _polylines = {
+          Polyline(
+            polylineId: const PolylineId('route'),
+            points: roadPoints, 
+            color: const Color(0xFF21709D),
+            width: 5,
+            jointType: JointType.round,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+          ),
+        };
+      });
+    } else {
+      // Fallback if API fails
+      setState(() {
+        _polylines = {
+          Polyline(
+            polylineId: const PolylineId('route'),
+            points: [_userPosition, position],
+            color: Colors.red.withOpacity(0.5),
+            width: 2,
+          ),
+        };
+      });
+      debugPrint("Directions API Error: ${result.errorMessage}");
+    }
+
+    mapController.animateCamera(CameraUpdate.newLatLngZoom(position, 14));
   }
 
   String getGreeting() {
@@ -63,8 +169,7 @@ class _HomePageState extends State<HomePage> {
   void _onSearchSubmitted(String value) {
     final query = value.toLowerCase().trim();
     setState(() {
-      _showResults =
-          query.isNotEmpty && _keywords.any((word) => query.contains(word));
+      _showResults = query.isNotEmpty && _keywords.any((word) => query.contains(word));
     });
   }
 
@@ -110,14 +215,25 @@ class _HomePageState extends State<HomePage> {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
-
-            Container(
-              color: Colors.grey.shade300,
-              child: const Center(
-                child: Text('Google Maps will be here'),
+            GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _userPosition,
+                zoom: 14.0,
               ),
+              onMapCreated: (GoogleMapController controller) {
+                mapController = controller;
+              },
+              myLocationEnabled: true,       // This MUST be true to see the blue dot
+              myLocationButtonEnabled: true,
+              markers: _markers,
+              polylines: _polylines,
+              zoomControlsEnabled: false,
+              onTap: (LatLng latLng) {
+                _setDestination(latLng, "Selected Location");
+              },
             ),
 
+            // Header Area
             Container(
               width: double.infinity,
               height: 187,
@@ -131,24 +247,8 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    getGreeting(),
-                    style: const TextStyle(
-                      fontSize: 36,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const Text(
-                    'User!',
-                    style: TextStyle(
-                      fontSize: 36,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                  Text(getGreeting(), style: const TextStyle(fontSize: 36, fontFamily: 'Inter', fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text('User!', style: TextStyle(fontSize: 36, fontFamily: 'Inter', fontWeight: FontWeight.bold, color: Colors.white)),
                 ],
               ),
             ),
@@ -161,13 +261,17 @@ class _HomePageState extends State<HomePage> {
                 child: _buildSearchBar(),
               ),
 
+            // FAB: Current Location - Moves camera to YOUR location
             Positioned(
               right: 17,
               bottom: bottomPadding + 79,
-              child: _circleButton('assets/location.png', 36),
+              child: GestureDetector(
+                onTap: () => mapController.animateCamera(CameraUpdate.newLatLng(_userPosition)),
+                child: _circleButton('assets/location.png', 36),
+              ),
             ),
 
-            
+            // FAB: Drive Navigation
             Positioned(
               right: 17,
               bottom: bottomPadding + 154,
@@ -184,7 +288,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         );
-
                         if (stepsBack != null) {
                           _restorePreviousState(steps: stepsBack);
                         }
@@ -193,6 +296,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
+            // Search Results Banner
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
@@ -206,25 +310,16 @@ class _HomePageState extends State<HomePage> {
                   decoration: BoxDecoration(
                     color: const Color(0xFFEEEEEE),
                     borderRadius: BorderRadius.circular(38),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x40000000),
-                        blurRadius: 6,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
+                    boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 6, offset: Offset(0, 4))],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-
                       SizedBox(
                         width: MediaQuery.of(context).size.width - 34,
                         child: _buildSearchBar(inBanner: true),
                       ),
-
                       const SizedBox(height: 20),
-
                       ..._getResults().map(
                         (item) => GestureDetector(
                           onTap: () {
@@ -232,11 +327,11 @@ class _HomePageState extends State<HomePage> {
                               Navigator.pop(context, item);
                             } else {
                               _saveCurrentState();
-                              setState(() {
-                                _selectedDestination = item;
-                                _searchController.text = item;
-                                _showResults = false;
-                              });
+                              LatLng target = (item.contains("Start"))
+                                  ? const LatLng(13.8010, 121.1000)
+                                  : const LatLng(13.7800, 121.0700);
+                              _setDestination(target, item);
+                              setState(() => _showResults = false);
                             }
                           },
                           child: _buildResultItem(item),
@@ -260,15 +355,7 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(38),
-        boxShadow: inBanner
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 4,
-                  offset: Offset(0, 4),
-                ),
-              ],
+        boxShadow: inBanner ? null : const [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 4))],
       ),
       child: Row(
         children: [
@@ -278,10 +365,7 @@ class _HomePageState extends State<HomePage> {
             child: TextField(
               controller: _searchController,
               onSubmitted: _onSearchSubmitted,
-              decoration: const InputDecoration(
-                hintText: 'Search here',
-                border: InputBorder.none,
-              ),
+              decoration: const InputDecoration(hintText: 'Search here', border: InputBorder.none),
             ),
           ),
           if (!inBanner)
@@ -313,10 +397,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           Image.asset('assets/maps-pin.png', width: 22, height: 31),
           const SizedBox(width: 12),
-          Text(
-            text,
-            style: const TextStyle(fontSize: 16, fontFamily: 'Inter'),
-          ),
+          Text(text, style: const TextStyle(fontSize: 16, fontFamily: 'Inter')),
         ],
       ),
     );
@@ -326,16 +407,10 @@ class _HomePageState extends State<HomePage> {
     return Container(
       width: 55,
       height: 55,
-      decoration: BoxDecoration(
-        color: const Color(0xFF21709D),
+      decoration: const BoxDecoration(
+        color: Color(0xFF21709D),
         shape: BoxShape.circle,
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 4,
-            offset: Offset(0, 3),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 3))],
       ),
       child: Center(
         child: Image.asset(asset, width: size, height: size),
