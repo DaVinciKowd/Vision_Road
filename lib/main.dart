@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'screens/splash_screen.dart';
 import 'providers/auth_provider.dart';
@@ -7,8 +8,13 @@ import 'providers/hazard_provider.dart';
 import 'providers/location_provider.dart';
 import 'services/supabase_service.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (_) {
+    // .env missing or not bundled (e.g. first clone); env vars will be null
+  }
   await SupabaseService.initialize();
   runApp(const VisionRoadApp());
 }
