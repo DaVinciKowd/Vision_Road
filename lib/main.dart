@@ -1,4 +1,5 @@
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +16,7 @@ Future<void> main() async {
   } catch (_) {
     // .env missing or not bundled (e.g. first clone); env vars will be null
   }
+  await Firebase.initializeApp();
   await SupabaseService.initialize();
   runApp(const VisionRoadApp());
 }
