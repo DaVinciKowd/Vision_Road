@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'sign_in_screen.dart'; // import the sign in screen
+import 'auth_gate.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,11 +14,11 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
 
-    // Navigate to Sign In page after 3 seconds
+    // Navigate to auth gate (which decides sign-in vs home) after 3 seconds
     Timer(const Duration(seconds: 3), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (crontext) => const SignInScreen()),
+        MaterialPageRoute(builder: (context) => const AuthGate()),
       );
     });
   }
