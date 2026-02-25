@@ -3,6 +3,11 @@
         android:label="vision_road"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyBZSCo5G33DqWNFSYD-6Ggu7YMlsi99xiY" />
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
