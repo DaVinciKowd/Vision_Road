@@ -214,56 +214,65 @@ class _SignInScreenState extends State<SignInScreen> {
                   },
                 ),
 
-                // Sign In Button
+                // Sign In Button (email/password)
                 Consumer<AuthProvider>(
                   builder: (context, authProvider, _) {
-                    return SizedBox(
-                      width: double.infinity,
-                      height: 49,
-                      child: ElevatedButton(
-                        onPressed: authProvider.isLoading
-                            ? null
-                            : () async {
-                                final success = await authProvider.signIn(
-                                  _usernameController.text.trim(),
-                                  _passwordController.text,
-                                );
-                                if (success && mounted) {
-                                  Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const HomePage(),
-                                    ),
-                                  );
-                                }
-                              },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF21709D),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                        child: authProvider.isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : const Text(
-                                'Sign In',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontFamily: 'Inter',
-                                  fontWeight: FontWeight.w400,
-                                ),
+                    return Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          height: 49,
+                          child: ElevatedButton(
+                            onPressed: authProvider.isLoading
+                                ? null
+                                : () async {
+                                    final success = await authProvider.signIn(
+                                      _usernameController.text.trim(),
+                                      _passwordController.text,
+                                    );
+                                    if (success && mounted) {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const HomePage(),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF21709D),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                      ),
+                            ),
+                            child: authProvider.isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor:
+                                          AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Sign In',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontFamily: 'Inter',
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                      ],
                     );
                   },
                 ),

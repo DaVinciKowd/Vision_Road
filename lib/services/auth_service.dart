@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import 'user_profile_service.dart';
 
 class AuthService {
   static const String _userKey = 'current_user';
@@ -56,6 +58,13 @@ class AuthService {
       phoneNumber: phoneNumber,
       createdAt: fbUser.metadata.creationTime,
       updatedAt: fbUser.metadata.lastSignInTime,
+    );
+
+    await UserProfileService.upsertUserProfile(
+      uid: fbUser.uid,
+      username: username,
+      email: user.email,
+      phoneNumber: phoneNumber,
     );
 
     await _saveUser(user);
