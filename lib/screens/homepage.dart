@@ -232,7 +232,7 @@ class _HomePageState extends State<HomePage> {
                 _setDestination(latLng, "Selected Location");
               },
             ),
-
+            /*
             // Header Area
             Container(
               width: double.infinity,
@@ -252,6 +252,60 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+            */
+
+            Container(
+              width: double.infinity,
+              height: 187,
+              child: ShaderMask(
+                shaderCallback: (Rect bounds) {
+                  return LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white,
+                      Colors.white.withOpacity(0.5),
+                    ],
+                    stops: [0.85, 1.0],
+                  ).createShader(bounds);
+                },
+                blendMode: BlendMode.dstIn,
+                child: Container (
+                  padding: const EdgeInsets.fromLTRB(24, 60, 24, 0),
+                  decoration: const BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage('assets/header_bg.png'),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        getGreeting(),
+                        style: const TextStyle (
+                          fontSize: 36,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Text(
+                        'User!',
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontFamily:'Inter',
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+
 
             if (!_showResults)
               Positioned(
