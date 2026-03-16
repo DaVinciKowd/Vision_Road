@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'homepage.dart';
+import 'navigation_camera_page.dart';
 
 class DriveRoutePage extends StatefulWidget {
   final String destination;
@@ -200,7 +201,16 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
                       width: double.infinity,
                       height: 49,
                       child: ElevatedButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_)=> NavigationCameraPage(
+                                destination: widget.destination, 
+                              ),
+                            ),
+                          );
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF21709D),
                           shape: RoundedRectangleBorder(
