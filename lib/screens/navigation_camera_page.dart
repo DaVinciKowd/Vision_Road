@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'dart:io';
 import 'user_profile.dart';
 import 'drive_route.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class NavigationCameraPage extends StatefulWidget {
   final String destination;
@@ -17,8 +18,19 @@ class NavigationCameraPage extends StatefulWidget {
 }
 
 class _NavigationCameraPageState extends State<NavigationCameraPage> {
+  /// CAMERA
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
+
+  /// MAP
+  GoogleMapController? mapController;
+  LatLng _userPosition = const LatLng(13.7565, 121.0583);
+
+  /// PICTURE IN PICTURE TOGGLE
+  bool _mapFullScreen = false;
+
+  /// PIP POSITION
+  Offset _pipPosition = const Offset(200, 100);
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -68,9 +80,50 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     super.dispose();
   }
 
+  /// CAMERA PREVIEW
+  Widget _buildCameraPreview() {
+    return FutureBuilder(
+      future: _initializeControllerFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done) {
+          final size = MediaQuery.of(context).size;
+
+          final scale =
+              1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
+
+          return Transform.scale(
+            scale: scale,
+            child: Center(
+              child: CameraPreview(_cameraController!),
+            ),
+          );
+        } else {
+          return const Center(child: CircularProgressIndicator());
+        }
+      },
+    );
+  }
+
+  /// GOOGLE MAP
+  Widget _buildGoogleMap() {
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: _userPosition,
+        zoom: 14,
+      ),
+      onMapCreated: (GoogleMapController controller) {
+        mapController = controller;
+      },
+      myLocationEnabled: true,
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final screenSize = MediaQuery.of(context).size;
 
     return Scaffold(
       body: GestureDetector(
@@ -78,47 +131,25 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
+            /// MAIN VIEW
+            _mapFullScreen ? _buildGoogleMap() : _buildCameraPreview(),
 
-            /// CAMERA PREVIEW
-            FutureBuilder(
-              future: _initializeControllerFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.done) {
-                  final size = MediaQuery.of(context).size;
-
-                  final scale = 1 /
-                      (_cameraController!.value.aspectRatio *
-                          size.aspectRatio);
-
-                  return Transform.scale(
-                    scale: scale,
-                    child: Center(
-                      child: CameraPreview(_cameraController!),
-                    ),
-                  );
-                } else {
-                  return const Center(child: CircularProgressIndicator());
-                }
-              },
-            ),
-
-            // HEADER IMAGE
+            /// HEADER IMAGE
             Positioned(
-              top:0,
-              left:0,
-              right:0,
+              top: 0,
+              left: 0,
+              right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
                   shaderCallback: (Rect bounds) {
-                    return LinearGradient(
+                    return const LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
                         Colors.white,
                         Colors.transparent,
                       ],
-                      
                     ).createShader(bounds);
                   },
                   blendMode: BlendMode.dstIn,
@@ -130,17 +161,17 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                 ),
               ),
             ),
-            
-            //Footer Image
-            Positioned (
-              bottom:0,
-              left:0,
-              right:0,
+
+            /// FOOTER IMAGE
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
                   shaderCallback: (Rect bounds) {
-                    return LinearGradient(
+                    return const LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
@@ -153,7 +184,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   child: Image.asset(
                     'assets/footer.png',
                     fit: BoxFit.cover,
-                    width: double.infinity, 
+                    width: double.infinity,
                   ),
                 ),
               ),
@@ -185,9 +216,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder:(_)=> DriveRoutePage(
+                        builder: (_) => DriveRoutePage(
                           destination: _searchController.text,
-                        ), 
+                        ),
                       ),
                     );
                   }
@@ -242,6 +273,54 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                 ),
               ),
             ),
+
+            /// PICTURE IN PICTURE (TOP LAYER) - MOVABLE
+            Positioned(
+              top: _pipPosition.dy,
+              left: _pipPosition.dx,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() {
+                    _mapFullScreen = !_mapFullScreen;
+                  });
+                },
+                onPanUpdate: (details) {
+                  setState(() {
+                    _pipPosition += details.delta;
+
+                    // Clamp PiP inside screen boundaries
+                    final pipWidth = 150.0;
+                    final pipHeight = 200.0;
+                    _pipPosition = Offset(
+                      _pipPosition.dx.clamp(0, screenSize.width - pipWidth),
+                      _pipPosition.dy.clamp(0, screenSize.height - pipHeight),
+                    );
+                  });
+                },
+                child: Container(
+                  width: 150,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 6,
+                      )
+                    ],
+                  ),
+                  clipBehavior: Clip.hardEdge,
+                  child: _mapFullScreen
+                      ? _buildCameraPreview()
+                      : IgnorePointer(
+                          ignoring: true,
+                          child: _buildGoogleMap(),
+                        ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -269,7 +348,6 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         children: [
           Image.asset('assets/maps-pin.png', width: 28, height: 28),
           const SizedBox(width: 10),
-
           Expanded(
             child: TextField(
               controller: _searchController,
@@ -279,7 +357,6 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               ),
             ),
           ),
-
           if (!inBanner)
             GestureDetector(
               onTap: () async {
