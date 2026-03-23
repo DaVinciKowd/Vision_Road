@@ -213,7 +213,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               child: GestureDetector(
                 onTap: () {
                   if (_searchController.text.isNotEmpty) {
-                    Navigator.push(
+                    Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
                         builder: (_) => DriveRoutePage(
