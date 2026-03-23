@@ -19,9 +19,6 @@ class UserProfile extends StatefulWidget {
 class _UserProfileState extends State<UserProfile> {
   // Initial/default user data
   File? _profileImage;
-  String _username = 'Username';
-  String _email = 'Useremailadd@gmail.com';
-  String _phone = '0531 652 1234';
 
   final ScrollController _scrollController = ScrollController();
 
@@ -254,20 +251,50 @@ class _UserProfileState extends State<UserProfile> {
                                   await Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const EditProfile(),
+                                  builder: (_) => EditProfile(
+                                    initialUsername: user.username,
+                                    initialEmail: user.email,
+                                    initialPhone: user.phoneNumber,
+                                    initialProfileImage: _profileImage,
+                                  ),
                                 ),
                               );
+
+                              if (!mounted) {
+                                return;
+                              }
 
                               if (updatedData != null &&
                                   updatedData 
                                       is Map<String, dynamic>) {
+                                final username =
+                                    (updatedData['username'] as String? ?? '')
+                                        .trim();
+                                final email =
+                                    (updatedData['email'] as String? ?? '')
+                                        .trim();
+                                final phone =
+                                    (updatedData['phone'] as String? ?? '')
+                                        .trim();
+
+                                final hasTextUpdates =
+                                    username.isNotEmpty ||
+                                    email.isNotEmpty ||
+                                    phone.isNotEmpty;
+
+                                if (hasTextUpdates) {
+                                  await authProvider.updateProfile(
+                                    username: username.isEmpty
+                                        ? null
+                                        : username,
+                                    email: email.isEmpty ? null : email,
+                                    phoneNumber: phone.isEmpty ? null : phone,
+                                  );
+                                }
+
                                 setState(() {
                                   _profileImage = 
                                       updatedData['image'] as File?;
-                                  _username = updatedData['username'] ?? 
-                                      _username;
-                                  _email = updatedData['email'] ?? _email;
-                                  _phone = updatedData['phone'] ?? _phone;
                                 });
                               }
                             },

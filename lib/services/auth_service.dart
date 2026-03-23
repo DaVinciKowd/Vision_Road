@@ -124,6 +124,13 @@ class AuthService {
       updatedAt: DateTime.now(),
     );
 
+    await UserProfileService.upsertUserProfile(
+      uid: fbUser.uid,
+      username: updatedUser.username,
+      email: updatedUser.email,
+      phoneNumber: updatedUser.phoneNumber,
+    );
+
     await _saveUser(updatedUser);
     return updatedUser;
   }

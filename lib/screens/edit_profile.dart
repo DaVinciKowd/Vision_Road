@@ -3,7 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 class EditProfile extends StatefulWidget {
-  const EditProfile({super.key});
+  final String initialUsername;
+  final String initialEmail;
+  final String initialPhone;
+  final File? initialProfileImage;
+
+  const EditProfile({
+    super.key,
+    this.initialUsername = '',
+    this.initialEmail = '',
+    this.initialPhone = '',
+    this.initialProfileImage,
+  });
 
   static const double headerHeight = 200;
   static const double arcHeight = 94.95;
@@ -22,6 +33,15 @@ class _EditProfileState extends State<EditProfile> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _profileImage = widget.initialProfileImage;
+    _usernameController.text = widget.initialUsername;
+    _emailController.text = widget.initialEmail;
+    _phoneController.text = widget.initialPhone;
+  }
 
   Future<void> _pickImage() async {
     final XFile? pickedFile =
