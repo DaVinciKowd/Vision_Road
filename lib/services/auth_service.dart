@@ -104,35 +104,42 @@ class AuthService {
     String? email,
     String? phoneNumber,
   }) async {
-    final fbUser = _firebaseAuth.currentUser;
-    if (fbUser == null) {
-      throw Exception('No user logged in');
+    try {
+      final fbUser = _firebaseAuth.currentUser;
+      if (fbUser == null) {
+        throw Exception('No user logged in');
+      }
+
+      if (username != null && username.isNotEmpty) {
+        await fbUser.updateDisplayName(username);
+      }
+      if (email != null && email.isNotEmpty && email != fbUser.email) {
+        await fbUser.updateEmail(email);
+      }
+
+      final current = await getCurrentUser();
+      final updatedUser = (current ?? _fromFirebaseUser(fbUser)).copyWith(
+        username: username,
+        email: email,
+        phoneNumber: phoneNumber,
+        updatedAt: DateTime.now(),
+      );
+
+      await UserProfileService.upsertUserProfile(
+        uid: fbUser.uid,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+      );
+
+      await _saveUser(updatedUser);
+      return updatedUser;
+    } on fb.FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        throw Exception('This email is already in use. Please use a different email.');
+      }
+      rethrow;
     }
-
-    if (username != null && username.isNotEmpty) {
-      await fbUser.updateDisplayName(username);
-    }
-    if (email != null && email.isNotEmpty && email != fbUser.email) {
-      await fbUser.updateEmail(email);
-    }
-
-    final current = await getCurrentUser();
-    final updatedUser = (current ?? _fromFirebaseUser(fbUser)).copyWith(
-      username: username,
-      email: email,
-      phoneNumber: phoneNumber,
-      updatedAt: DateTime.now(),
-    );
-
-    await UserProfileService.upsertUserProfile(
-      uid: fbUser.uid,
-      username: updatedUser.username,
-      email: updatedUser.email,
-      phoneNumber: updatedUser.phoneNumber,
-    );
-
-    await _saveUser(updatedUser);
-    return updatedUser;
   }
 
   // Change password

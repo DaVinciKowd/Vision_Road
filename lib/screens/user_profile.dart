@@ -283,13 +283,29 @@ class _UserProfileState extends State<UserProfile> {
                                     phone.isNotEmpty;
 
                                 if (hasTextUpdates) {
-                                  await authProvider.updateProfile(
+                                  final isUpdated = await authProvider.updateProfile(
                                     username: username.isEmpty
                                         ? null
                                         : username,
                                     email: email.isEmpty ? null : email,
                                     phoneNumber: phone.isEmpty ? null : phone,
                                   );
+
+                                  if (!context.mounted) {
+                                    return;
+                                  }
+
+                                  if (!isUpdated) {
+                                    final errorMessage =
+                                        (authProvider.error ??
+                                                'Failed to update profile.')
+                                            .replaceFirst('Exception: ', '');
+
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(errorMessage)),
+                                    );
+                                    return;
+                                  }
                                 }
 
                                 setState(() {
