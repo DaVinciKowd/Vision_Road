@@ -4,6 +4,7 @@ import 'dart:io';
 import 'user_profile.dart';
 import 'drive_route.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../ml/pt_model_detector.dart';
 
 class NavigationCameraPage extends StatefulWidget {
   final String destination;
@@ -18,9 +19,21 @@ class NavigationCameraPage extends StatefulWidget {
 }
 
 class _NavigationCameraPageState extends State<NavigationCameraPage> {
+  static const String _ptModelAssetPath =
+      'assets/models/road_hazard_detector.pt';
+
   /// CAMERA
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
+
+  /// DETECTION
+  final PtModelDetector _detector =
+      PtModelDetector(modelAssetPath: _ptModelAssetPath);
+  bool _isProcessingFrame = false;
+  DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _inferenceInterval = Duration(milliseconds: 400);
+  DetectionResult? _latestDetection;
+  String _modelStatus = 'Preparing model...';
 
   /// MAP
   GoogleMapController? mapController;
@@ -61,21 +74,83 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   Future<void> _initializeCamera() async {
-    final cameras = await availableCameras();
-    final camera = cameras.first;
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        setState(() {
+          _modelStatus = 'No available camera on this device.';
+        });
+        return;
+      }
 
-    _cameraController = CameraController(
-      camera,
-      ResolutionPreset.medium,
-    );
+      final camera = cameras.first;
 
-    _initializeControllerFuture = _cameraController!.initialize();
-    setState(() {});
+      _cameraController = CameraController(
+        camera,
+        ResolutionPreset.medium,
+      );
+
+      _initializeControllerFuture = _cameraController!.initialize();
+      await _initializeControllerFuture;
+
+      await _detector.initialize();
+
+      if (_detector.isModelAssetFound) {
+        _modelStatus = 'Model ready';
+        await _startImageStream();
+      } else {
+        _modelStatus = 'Add .pt file: $_ptModelAssetPath';
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _modelStatus = 'Camera/model initialization failed.';
+      });
+    }
+  }
+
+  Future<void> _startImageStream() async {
+    final controller = _cameraController;
+    if (controller == null || controller.value.isStreamingImages) {
+      return;
+    }
+
+    await controller.startImageStream((CameraImage image) {
+      if (!mounted || _isProcessingFrame) return;
+
+      final now = DateTime.now();
+      if (now.difference(_lastInferenceAt) < _inferenceInterval) {
+        return;
+      }
+
+      _isProcessingFrame = true;
+      _lastInferenceAt = now;
+
+      _runDetection(image).whenComplete(() {
+        _isProcessingFrame = false;
+      });
+    });
+  }
+
+  Future<void> _runDetection(CameraImage image) async {
+    final results = await _detector.detect(image);
+    if (!mounted || results.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _latestDetection = results.first;
+    });
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
+    _detector.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -160,6 +235,14 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   ),
                 ),
               ),
+            ),
+
+            /// MODEL STATUS + LATEST DETECTION
+            Positioned(
+              top: 64,
+              left: 16,
+              right: 16,
+              child: _buildDetectionStatusCard(),
             ),
 
             /// FOOTER IMAGE
@@ -424,6 +507,45 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       ),
       child: Center(
         child: Image.asset(asset, width: size, height: size),
+      ),
+    );
+  }
+
+  Widget _buildDetectionStatusCard() {
+    final detection = _latestDetection;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xBF000000),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _modelStatus,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (detection != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: Colors.white,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

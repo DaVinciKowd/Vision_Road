@@ -135,10 +135,19 @@ class AuthService {
       await _saveUser(updatedUser);
       return updatedUser;
     } on fb.FirebaseAuthException catch (e) {
-      if (e.code == 'email-already-in-use') {
+      final code = e.code.toLowerCase();
+
+      if (code.contains('email-already-in-use')) {
         throw Exception('This email is already in use. Please use a different email.');
       }
-      rethrow;
+      if (code.contains('invalid-email')) {
+        throw Exception('Please enter a valid email address.');
+      }
+      if (code.contains('requires-recent-login')) {
+        throw Exception('For security, please sign in again before changing your email.');
+      }
+
+      throw Exception('Unable to update profile right now. Please try again.');
     }
   }
 

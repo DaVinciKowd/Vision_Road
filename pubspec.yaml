@@ -98,6 +98,7 @@ flutter:
 
   assets:
     - .env
+    - assets/models/
     - assets/app_logo.png
     - assets/back_button.png
     - assets/hide-icon.png

@@ -296,10 +296,22 @@ class _UserProfileState extends State<UserProfile> {
                                   }
 
                                   if (!isUpdated) {
-                                    final errorMessage =
-                                        (authProvider.error ??
-                                                'Failed to update profile.')
-                                            .replaceFirst('Exception: ', '');
+                                    final rawError = authProvider.error ??
+                                        'Failed to update profile.';
+
+                                    String errorMessage =
+                                        rawError.replaceFirst('Exception: ', '');
+
+                                    if (rawError.contains('email-already-in-use')) {
+                                      errorMessage =
+                                          'This email is already in use. Please use a different email.';
+                                    } else if (rawError.contains('invalid-email')) {
+                                      errorMessage =
+                                          'Please enter a valid email address.';
+                                    } else if (rawError.contains('requires-recent-login')) {
+                                      errorMessage =
+                                          'For security, please sign in again before changing your email.';
+                                    }
 
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(content: Text(errorMessage)),
