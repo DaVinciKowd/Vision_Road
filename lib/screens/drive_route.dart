@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'homepage.dart';
 import 'navigation_camera_page.dart';
 
 class DriveRoutePage extends StatefulWidget {
   final String destination;
   final String? currentLocation;
+  final LatLng? destinationPosition;
+  final LatLng? currentPosition;
 
   const DriveRoutePage({
     super.key,
     required this.destination,
     this.currentLocation,
+    this.destinationPosition,
+    this.currentPosition,
   });
 
   @override
@@ -17,7 +24,21 @@ class DriveRoutePage extends StatefulWidget {
 }
 
 class _DriveRoutePageState extends State<DriveRoutePage> {
+  static const LatLng _defaultUserPosition = LatLng(13.7565, 121.0583);
+  static const LatLng _defaultDestinationPosition = LatLng(13.7800, 121.0700);
+  static const String _googleApiKey = "AIzaSyBZSCo5G33DqWNFSYD-6Ggu7YMlsi99xiY";
+
   String currentLocation = 'Current Location';
+  LatLng _userPosition = _defaultUserPosition;
+  late LatLng _destinationPosition;
+
+  GoogleMapController? _mapController;
+  Set<Marker> _markers = {};
+  Set<Polyline> _polylines = {};
+
+  String _distanceLabel = 'Calculating...';
+  String? _routeError;
+  bool _isLoadingRoute = true;
 
   @override
   void initState() {
@@ -25,6 +46,176 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
     if (widget.currentLocation != null) {
       currentLocation = widget.currentLocation!;
     }
+
+    _userPosition = widget.currentPosition ?? _defaultUserPosition;
+    _destinationPosition =
+        widget.destinationPosition ?? _inferDestinationPosition(widget.destination);
+
+    _initializeRoute();
+  }
+
+  Future<void> _initializeRoute() async {
+    await _determinePosition();
+    await _buildRoute();
+  }
+
+  Future<void> _determinePosition() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _userPosition = LatLng(position.latitude, position.longitude);
+      });
+    } catch (_) {
+      // Keep fallback location when GPS is unavailable.
+    }
+  }
+
+  LatLng _inferDestinationPosition(String destinationLabel) {
+    final lower = destinationLabel.toLowerCase();
+
+    if (lower.contains('start')) {
+      return const LatLng(13.8010, 121.1000);
+    }
+
+    if (lower.contains('star') ||
+        lower.contains('tollway') ||
+        lower.contains('batangas') ||
+        lower.contains('autosweep')) {
+      return const LatLng(13.7800, 121.0700);
+    }
+
+    return _defaultDestinationPosition;
+  }
+
+  Future<void> _buildRoute() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingRoute = true;
+      _routeError = null;
+    });
+
+    final polylinePoints = PolylinePoints(apiKey: _googleApiKey);
+    final result = await polylinePoints.getRouteBetweenCoordinates(
+      request: PolylineRequest(
+        origin: PointLatLng(_userPosition.latitude, _userPosition.longitude),
+        destination:
+            PointLatLng(_destinationPosition.latitude, _destinationPosition.longitude),
+        mode: TravelMode.driving,
+      ),
+    );
+
+    final routePoints = result.points
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+
+    final pointsForDistance = routePoints.isNotEmpty
+        ? routePoints
+        : [_userPosition, _destinationPosition];
+
+    final distanceMeters = _computeRouteDistanceMeters(pointsForDistance);
+
+    if (!mounted) return;
+    setState(() {
+      _markers = {
+        Marker(
+          markerId: const MarkerId('current_location'),
+          position: _userPosition,
+          infoWindow: InfoWindow(title: currentLocation),
+        ),
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: _destinationPosition,
+          infoWindow: InfoWindow(title: widget.destination),
+        ),
+      };
+
+      _polylines = {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: pointsForDistance,
+          color: routePoints.isNotEmpty
+              ? const Color(0xFF21709D)
+              : Colors.red.withOpacity(0.7),
+          width: routePoints.isNotEmpty ? 5 : 3,
+        ),
+      };
+
+      _distanceLabel = _formatDistance(distanceMeters);
+      _routeError = routePoints.isEmpty
+          ? (result.errorMessage ?? 'Unable to fetch road route.')
+          : null;
+      _isLoadingRoute = false;
+    });
+
+    _fitMapToRoute(pointsForDistance);
+  }
+
+  double _computeRouteDistanceMeters(List<LatLng> points) {
+    if (points.length < 2) {
+      return Geolocator.distanceBetween(
+        _userPosition.latitude,
+        _userPosition.longitude,
+        _destinationPosition.latitude,
+        _destinationPosition.longitude,
+      );
+    }
+
+    double total = 0;
+    for (int i = 0; i < points.length - 1; i++) {
+      total += Geolocator.distanceBetween(
+        points[i].latitude,
+        points[i].longitude,
+        points[i + 1].latitude,
+        points[i + 1].longitude,
+      );
+    }
+    return total;
+  }
+
+  String _formatDistance(double meters) {
+    if (meters >= 1000) {
+      return '${(meters / 1000).toStringAsFixed(1)} km';
+    }
+    return '${meters.round()} m';
+  }
+
+  void _fitMapToRoute(List<LatLng> points) {
+    if (_mapController == null || points.isEmpty) return;
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (final point in points) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
   }
 
   @override
@@ -34,9 +225,27 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
         children: [
 
           Positioned.fill(
-            child: Image.asset(
-              'assets/map-placeholder.png',
-              fit: BoxFit.cover,
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _userPosition,
+                zoom: 14,
+              ),
+              onMapCreated: (controller) {
+                _mapController = controller;
+                if (!_isLoadingRoute) {
+                  final polyline = _polylines
+                      .where((element) => element.polylineId.value == 'route')
+                      .toList();
+                  if (polyline.isNotEmpty) {
+                    _fitMapToRoute(polyline.first.points);
+                  }
+                }
+              },
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              markers: _markers,
+              polylines: _polylines,
             ),
           ),
 
@@ -92,6 +301,8 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
                                 setState(() {
                                   currentLocation = result;
                                 });
+                                await _determinePosition();
+                                await _buildRoute();
                               }
                             },
                             child: Container(
@@ -177,21 +388,38 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
                 children: [
 
                   RichText(
-                    text: const TextSpan(
+                    text: TextSpan(
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 16,
                         color: Color(0xFF21709D),
                       ),
                       children: [
-                        TextSpan(
+                        const TextSpan(
                           text: 'Distance: ',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        TextSpan(text: '23km'),
+                        TextSpan(
+                          text: _isLoadingRoute ? 'Calculating...' : _distanceLabel,
+                        ),
                       ],
                     ),
                   ),
+
+                  if (_routeError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        _routeError!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'Inter',
+                          color: Colors.red,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
 
                   const SizedBox(height: 12),
 

@@ -301,6 +301,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                       MaterialPageRoute(
                         builder: (_) => DriveRoutePage(
                           destination: _searchController.text,
+                          currentPosition: _userPosition,
                         ),
                       ),
                     );

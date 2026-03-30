@@ -23,6 +23,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _searchController = TextEditingController();
   bool _showResults = false;
   String? _selectedDestination;
+  LatLng? _selectedDestinationPosition;
 
   // --- GOOGLE MAPS & LOCATION STATE ---
   late GoogleMapController mapController;
@@ -102,6 +103,7 @@ class _HomePageState extends State<HomePage> {
   void _setDestination(LatLng position, String label) async {
     setState(() {
       _selectedDestination = label;
+      _selectedDestinationPosition = position;
       _searchController.text = label;
       _markers = {
         Marker(
@@ -187,6 +189,7 @@ class _HomePageState extends State<HomePage> {
     _stateHistory.add({
       'showResults': _showResults,
       'selectedDestination': _selectedDestination,
+      'selectedDestinationPosition': _selectedDestinationPosition,
       'searchText': _searchController.text,
     });
   }
@@ -200,6 +203,7 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _showResults = state?['showResults'] ?? false;
         _selectedDestination = state?['selectedDestination'];
+        _selectedDestinationPosition = state?['selectedDestinationPosition'];
         _searchController.text = state?['searchText'] ?? '';
       });
     }
@@ -339,6 +343,8 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (_) => DriveRoutePage(
                               destination: _selectedDestination!,
+                              destinationPosition: _selectedDestinationPosition,
+                              currentPosition: _userPosition,
                             ),
                           ),
                         );
