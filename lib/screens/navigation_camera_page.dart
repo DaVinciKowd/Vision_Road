@@ -39,6 +39,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   final List<String> _keywords = ['star', 'tollway', 'batangas', 'autosweep'];
 
+  // --- ADDED: DATA MAPPING FOR COORDINATES ---
+  final Map<String, LatLng> _locationData = {
+    'STAR Tollway Batangas': const LatLng(13.7565, 121.0583),
+    'STAR Tollway (AutoSweep)': const LatLng(13.9431, 121.1352),
+    'STAR Tollway Start': const LatLng(14.0042, 121.1645),
+  };
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +69,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Future<void> _initializeCamera() async {
     final cameras = await availableCameras();
+    if (cameras.isEmpty) return;
+    
     final camera = cameras.first;
 
     _cameraController = CameraController(
@@ -70,7 +79,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     );
 
     _initializeControllerFuture = _cameraController!.initialize();
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   @override
@@ -87,9 +96,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           final size = MediaQuery.of(context).size;
+          if (_cameraController == null) return const SizedBox();
 
-          final scale =
-              1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
+          final scale = 1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
 
           return Transform.scale(
             scale: scale,
@@ -136,9 +145,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
             /// HEADER IMAGE
             Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
+              top: 0, left: 0, right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
@@ -146,10 +153,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                     return const LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white,
-                        Colors.transparent,
-                      ],
+                      colors: [Colors.white, Colors.transparent],
                     ).createShader(bounds);
                   },
                   blendMode: BlendMode.dstIn,
@@ -164,9 +168,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
             /// FOOTER IMAGE
             Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
+              bottom: 0, left: 0, right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
@@ -174,10 +176,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                     return const LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
-                      colors: [
-                        Colors.white,
-                        Colors.transparent,
-                      ],
+                      colors: [Colors.white, Colors.transparent],
                     ).createShader(bounds);
                   },
                   blendMode: BlendMode.dstIn,
@@ -206,18 +205,24 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               child: _circleButton('assets/location.png', 36),
             ),
 
-            /// DRIVE BUTTON
+            /// DRIVE BUTTON (FIXED NAVIGATION HERE)
             Positioned(
               right: 17,
               bottom: bottomPadding + 154,
               child: GestureDetector(
                 onTap: () {
-                  if (_searchController.text.isNotEmpty) {
+                  String destName = _searchController.text;
+                  if (destName.isNotEmpty) {
+                    // Try to find the coordinates for the text in the search bar
+                    // If not found in our map, we use a fallback coordinate
+                    LatLng coords = _locationData[destName] ?? const LatLng(13.7565, 121.0583);
+
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => DriveRoutePage(
-                          destination: _searchController.text,
+                          destination: destName,
+                          destinationCoords: coords, // --- FIXED: Pass the required parameter ---
                         ),
                       ),
                     );
@@ -274,24 +279,18 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               ),
             ),
 
-            /// PICTURE IN PICTURE (TOP LAYER) - MOVABLE
+            /// PICTURE IN PICTURE
             Positioned(
               top: _pipPosition.dy,
               left: _pipPosition.dx,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  setState(() {
-                    _mapFullScreen = !_mapFullScreen;
-                  });
-                },
+                onTap: () => setState(() => _mapFullScreen = !_mapFullScreen),
                 onPanUpdate: (details) {
                   setState(() {
                     _pipPosition += details.delta;
-
-                    // Clamp PiP inside screen boundaries
-                    final pipWidth = 150.0;
-                    final pipHeight = 200.0;
+                    const pipWidth = 150.0;
+                    const pipHeight = 200.0;
                     _pipPosition = Offset(
                       _pipPosition.dx.clamp(0, screenSize.width - pipWidth),
                       _pipPosition.dy.clamp(0, screenSize.height - pipHeight),
@@ -304,20 +303,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 6,
-                      )
-                    ],
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                   ),
                   clipBehavior: Clip.hardEdge,
                   child: _mapFullScreen
                       ? _buildCameraPreview()
-                      : IgnorePointer(
-                          ignoring: true,
-                          child: _buildGoogleMap(),
-                        ),
+                      : IgnorePointer(child: _buildGoogleMap()),
                 ),
               ),
             ),
@@ -334,15 +325,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(38),
-        boxShadow: inBanner
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 4,
-                  offset: Offset(0, 4),
-                )
-              ],
+        boxShadow: inBanner ? null : const [
+          BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 4))
+        ],
       ),
       child: Row(
         children: [
@@ -362,18 +347,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               onTap: () async {
                 final result = await Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const UserProfile(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const UserProfile()),
                 );
-
-                if (result is File) {
-                  setState(() => _profileImage = result);
-                }
+                if (result is File) setState(() => _profileImage = result);
               },
               child: ClipOval(
                 child: _profileImage != null
-                    ? Image.file(_profileImage!, width: 32, height: 32)
+                    ? Image.file(_profileImage!, width: 32, height: 32, fit: BoxFit.cover)
                     : Image.asset('assets/profile.png', width: 32, height: 32),
               ),
             ),
@@ -384,14 +364,10 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   List<String> _getResults() {
     final query = _searchController.text.toLowerCase().trim();
-
     if (query.isEmpty) return [];
-
-    return [
-      'STAR Tollway Batangas',
-      'STAR Tollway (AutoSweep)',
-      'STAR Tollway Start',
-    ].where((item) => item.toLowerCase().contains(query)).toList();
+    return _locationData.keys
+        .where((item) => item.toLowerCase().contains(query))
+        .toList();
   }
 
   Widget _buildResultItem(String text) {
@@ -409,22 +385,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Widget _circleButton(String asset, double size) {
     return Container(
-      width: 55,
-      height: 55,
+      width: 55, height: 55,
       decoration: const BoxDecoration(
         color: Color(0xFF21709D),
         shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 4,
-            offset: Offset(0, 3),
-          )
-        ],
+        boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 3))],
       ),
-      child: Center(
-        child: Image.asset(asset, width: size, height: size),
-      ),
+      child: Center(child: Image.asset(asset, width: size, height: size)),
     );
   }
 }
