@@ -430,11 +430,17 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
                       height: 49,
                       child: ElevatedButton(
                         onPressed: () {
+                          final routePoints = _polylines.isNotEmpty
+                              ? _polylines.first.points.toList()
+                              : <LatLng>[];
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_)=> NavigationCameraPage(
                                 destination: widget.destination, 
+                                destinationPosition: _destinationPosition, // pass the LatLng
+                                routePoints: routePoints,
                               ),
                             ),
                           );

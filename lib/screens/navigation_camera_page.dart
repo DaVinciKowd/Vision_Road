@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'dart:io';
+import 'dart:async';
+import 'package:geolocator/geolocator.dart';
 import 'user_profile.dart';
 import 'drive_route.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -8,10 +10,14 @@ import '../ml/pt_model_detector.dart';
 
 class NavigationCameraPage extends StatefulWidget {
   final String destination;
+  final LatLng? destinationPosition;
+  final List<LatLng>? routePoints;
 
   const NavigationCameraPage({
     super.key,
     required this.destination,
+    this.destinationPosition,
+    this.routePoints,
   });
 
   @override
@@ -19,25 +25,26 @@ class NavigationCameraPage extends StatefulWidget {
 }
 
 class _NavigationCameraPageState extends State<NavigationCameraPage> {
-  static const String _ptModelAssetPath =
-      'assets/models/road_hazard_detector.pt';
+  static const String _ptModelAssetPath = 'assets/models/road_hazard_detector.pt';
 
   /// CAMERA
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
 
   /// DETECTION
-  final PtModelDetector _detector =
-      PtModelDetector(modelAssetPath: _ptModelAssetPath);
+  final PtModelDetector _detector = PtModelDetector(modelAssetPath: _ptModelAssetPath);
   bool _isProcessingFrame = false;
   DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _inferenceInterval = Duration(milliseconds: 400);
   DetectionResult? _latestDetection;
   String _modelStatus = 'Preparing model...';
 
-  /// MAP
+  /// MAP & NAVIGATION
   GoogleMapController? mapController;
   LatLng _userPosition = const LatLng(13.7565, 121.0583);
+  StreamSubscription<Position>? _positionStream;
+  Set<Polyline> _polylines = {};
+  Set<Marker> _markers = {};
 
   /// PICTURE IN PICTURE TOGGLE
   bool _mapFullScreen = false;
@@ -46,21 +53,17 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   Offset _pipPosition = const Offset(200, 100);
 
   final TextEditingController _searchController = TextEditingController();
-
   File? _profileImage;
   bool _showResults = false;
-
   final List<String> _keywords = ['star', 'tollway', 'batangas', 'autosweep'];
 
   @override
   void initState() {
     super.initState();
-
     _searchController.text = widget.destination;
 
     _searchController.addListener(() {
       final query = _searchController.text.toLowerCase().trim();
-
       setState(() {
         if (query.isEmpty) {
           _showResults = false;
@@ -70,128 +73,193 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       });
     });
 
+    _initializeNavigationData();
+    _startLocationTracking(); 
     _initializeCamera();
   }
 
+  void _initializeNavigationData() {
+    // 1. Setup the Route Path
+    if (widget.routePoints != null && widget.routePoints!.isNotEmpty) {
+      _polylines.add(
+        Polyline(
+          polylineId: const PolylineId('nav_route'),
+          points: widget.routePoints!,
+          color: const Color(0xFF21709D),
+          width: 8, 
+          jointType: JointType.round,
+          startCap: Cap.roundCap, // Corrected parameter name
+          endCap: Cap.roundCap,   // Corrected parameter name
+        ),
+      );
+    }
+
+    // 2. Add Destination Marker
+    if (widget.destinationPosition != null) {
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('dest_pin'),
+          position: widget.destinationPosition!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          infoWindow: InfoWindow(title: widget.destination),
+        ),
+      );
+    }
+  }
+
+  /// REAL-TIME SMOOTH TRACKING (REVERTED TO NATIVE INDICATOR)
+  void _startLocationTracking() {
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation, 
+        distanceFilter: 2, //only updates every 2 meters to save battery/cpu 
+      ),
+    ).listen((Position position) {
+      LatLng current = LatLng(position.latitude, position.longitude);
+      
+      if (mounted) {
+        // 1. Update the user position and recalculate the polyline
+        _updateRouteProgress(current);
+                
+        // Perspective Camera Animation to follow movement
+        mapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: current,
+              zoom: 18.5, 
+              tilt: 50.0,      
+              bearing: position.heading, 
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  ///New method: trims the polyline so it always starts from your current dot
+  void _updateRouteProgress(LatLng currentPosition){
+    if (widget.routePoints == null || widget.routePoints!.isEmpty) return;
+
+    //Use the original points passed from the previous screen
+    List<LatLng> fullRoute = widget.routePoints!;
+    int closestPointIndex = 0;
+    double minDistance = double.infinity;
+
+    // find which point in the route array is currently closest to the car
+    for (int i =0; i< fullRoute.length; i++) {
+      double distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        fullRoute[i].latitude,
+        fullRoute[i].longitude,
+      );
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPointIndex = i;
+      }  
+    }
+    // Create a new path: Start exactly at the user's GPS dot, 
+    // then continue with the rest of the original points.
+    List<LatLng> updatedPath = [currentPosition];
+
+    // Only add points that are ahead of our current "closest" index
+    if (closestPointIndex < fullRoute.length - 1) {
+      updatedPath.addAll(fullRoute.sublist(closestPointIndex + 1));
+    }
+
+    setState (() {
+      _userPosition = currentPosition;
+      _polylines = {
+        Polyline(
+          polylineId: const PolylineId('nav_route'),
+          points: updatedPath,
+          color: const Color(0xFF21709D),
+          width: 8,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      };
+    });
+  }
+
+  // --- CAMERA & ML LOGIC ---
   Future<void> _initializeCamera() async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        setState(() {
-          _modelStatus = 'No available camera on this device.';
-        });
+        setState(() => _modelStatus = 'No camera');
         return;
       }
-
-      final camera = cameras.first;
-
-      _cameraController = CameraController(
-        camera,
-        ResolutionPreset.medium,
-      );
-
+      _cameraController = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
       _initializeControllerFuture = _cameraController!.initialize();
       await _initializeControllerFuture;
-
       await _detector.initialize();
-
       if (_detector.isModelAssetFound) {
         _modelStatus = 'Model ready';
         await _startImageStream();
-      } else {
-        _modelStatus = 'Add .pt file: $_ptModelAssetPath';
       }
-
-      if (mounted) {
-        setState(() {});
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _modelStatus = 'Camera/model initialization failed.';
-      });
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) setState(() => _modelStatus = 'Init error');
     }
   }
 
   Future<void> _startImageStream() async {
     final controller = _cameraController;
-    if (controller == null || controller.value.isStreamingImages) {
-      return;
-    }
-
+    if (controller == null || controller.value.isStreamingImages) return;
     await controller.startImageStream((CameraImage image) {
       if (!mounted || _isProcessingFrame) return;
-
       final now = DateTime.now();
-      if (now.difference(_lastInferenceAt) < _inferenceInterval) {
-        return;
-      }
-
+      if (now.difference(_lastInferenceAt) < _inferenceInterval) return;
       _isProcessingFrame = true;
       _lastInferenceAt = now;
-
-      _runDetection(image).whenComplete(() {
-        _isProcessingFrame = false;
-      });
+      _runDetection(image).whenComplete(() => _isProcessingFrame = false);
     });
   }
 
   Future<void> _runDetection(CameraImage image) async {
     final results = await _detector.detect(image);
-    if (!mounted || results.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _latestDetection = results.first;
-    });
+    if (!mounted || results.isEmpty) return;
+    setState(() => _latestDetection = results.first);
   }
 
   @override
   void dispose() {
+    _positionStream?.cancel();
     _cameraController?.dispose();
     _detector.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  /// CAMERA PREVIEW
+  // --- UI BUILDERS ---
   Widget _buildCameraPreview() {
     return FutureBuilder(
       future: _initializeControllerFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           final size = MediaQuery.of(context).size;
-
-          final scale =
-              1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
-
-          return Transform.scale(
-            scale: scale,
-            child: Center(
-              child: CameraPreview(_cameraController!),
-            ),
-          );
-        } else {
-          return const Center(child: CircularProgressIndicator());
+          final scale = 1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
+          return Transform.scale(scale: scale, child: Center(child: CameraPreview(_cameraController!)));
         }
+        return const Center(child: CircularProgressIndicator());
       },
     );
   }
 
-  /// GOOGLE MAP
   Widget _buildGoogleMap() {
     return GoogleMap(
-      initialCameraPosition: CameraPosition(
-        target: _userPosition,
-        zoom: 14,
-      ),
-      onMapCreated: (GoogleMapController controller) {
-        mapController = controller;
-      },
-      myLocationEnabled: true,
+      initialCameraPosition: CameraPosition(target: _userPosition, zoom: 16),
+      onMapCreated: (controller) => mapController = controller,
+      myLocationEnabled: true, // Restores the original pulsing blue dot
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
+      tiltGesturesEnabled: true,
+      rotateGesturesEnabled: true,
+      compassEnabled: false,
+      polylines: _polylines,
+      markers: _markers,
     );
   }
 
@@ -206,93 +274,57 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
-            /// MAIN VIEW
             _mapFullScreen ? _buildGoogleMap() : _buildCameraPreview(),
 
-            /// HEADER IMAGE
+            /// HEADER OVERLAY
             Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
+              top: 0, left: 0, right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
-                  shaderCallback: (Rect bounds) {
-                    return const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white,
-                        Colors.transparent,
-                      ],
-                    ).createShader(bounds);
-                  },
+                  shaderCallback: (Rect bounds) => const LinearGradient(
+                    begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                    colors: [Colors.white, Colors.transparent],
+                  ).createShader(bounds),
                   blendMode: BlendMode.dstIn,
-                  child: Image.asset(
-                    'assets/header_bg.png',
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                  ),
+                  child: Image.asset('assets/header_bg.png', fit: BoxFit.cover),
                 ),
               ),
             ),
 
-            /// MODEL STATUS + LATEST DETECTION
-            Positioned(
-              top: 64,
-              left: 16,
-              right: 16,
-              child: _buildDetectionStatusCard(),
-            ),
+            /// ML HUD
+            Positioned(top: 64, left: 16, right: 16, child: _buildDetectionStatusCard()),
 
-            /// FOOTER IMAGE
+            /// FOOTER OVERLAY
             Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
+              bottom: 0, left: 0, right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
-                  shaderCallback: (Rect bounds) {
-                    return const LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.white,
-                        Colors.transparent,
-                      ],
-                    ).createShader(bounds);
-                  },
+                  shaderCallback: (Rect bounds) => const LinearGradient(
+                    begin: Alignment.bottomCenter, end: Alignment.topCenter,
+                    colors: [Colors.white, Colors.transparent],
+                  ).createShader(bounds),
                   blendMode: BlendMode.dstIn,
-                  child: Image.asset(
-                    'assets/footer.png',
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                  ),
+                  child: Image.asset('assets/footer.png', fit: BoxFit.cover),
                 ),
               ),
             ),
 
-            /// SEARCH BAR
+            /// CONTROLS
             if (!_showResults)
               Positioned(
-                left: 17,
-                right: 17,
-                bottom: bottomPadding + 16,
+                left: 17, right: 17, bottom: bottomPadding + 16,
                 child: _buildSearchBar(),
               ),
 
-            /// LOCATION BUTTON
             Positioned(
-              right: 17,
-              bottom: bottomPadding + 79,
+              right: 17, bottom: bottomPadding + 79,
               child: _circleButton('assets/location.png', 36),
             ),
 
-            /// DRIVE BUTTON
             Positioned(
-              right: 17,
-              bottom: bottomPadding + 154,
+              right: 17, bottom: bottomPadding + 154,
               child: GestureDetector(
                 onTap: () {
                   if (_searchController.text.isNotEmpty) {
@@ -311,13 +343,11 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               ),
             ),
 
-            /// SEARCH RESULTS
+            /// SEARCH RESULTS PANEL
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
-              left: 16,
-              right: 16,
-              bottom: _showResults ? 16 : -500,
+              left: 16, right: 16, bottom: _showResults ? 16 : -500,
               child: Material(
                 color: Colors.transparent,
                 child: Container(
@@ -325,83 +355,46 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   decoration: BoxDecoration(
                     color: const Color(0xFFEEEEEE),
                     borderRadius: BorderRadius.circular(38),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x40000000),
-                        blurRadius: 6,
-                        offset: Offset(0, 4),
-                      )
-                    ],
+                    boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 6, offset: Offset(0, 4))],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
-                        width: MediaQuery.of(context).size.width - 34,
-                        child: _buildSearchBar(inBanner: true),
-                      ),
+                      _buildSearchBar(inBanner: true),
                       const SizedBox(height: 20),
-                      ..._getResults().map(
-                        (item) => GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _searchController.text = item;
-                              _showResults = false;
-                            });
-                          },
-                          child: _buildResultItem(item),
-                        ),
-                      ),
+                      ..._getResults().map((item) => GestureDetector(
+                        onTap: () => setState(() { _searchController.text = item; _showResults = false; }),
+                        child: _buildResultItem(item),
+                      )),
                     ],
                   ),
                 ),
               ),
             ),
 
-            /// PICTURE IN PICTURE (TOP LAYER) - MOVABLE
+            /// DRAGGABLE PIP WINDOW
             Positioned(
-              top: _pipPosition.dy,
-              left: _pipPosition.dx,
+              top: _pipPosition.dy, left: _pipPosition.dx,
               child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  setState(() {
-                    _mapFullScreen = !_mapFullScreen;
-                  });
-                },
+                onTap: () => setState(() => _mapFullScreen = !_mapFullScreen),
                 onPanUpdate: (details) {
                   setState(() {
                     _pipPosition += details.delta;
-
-                    // Clamp PiP inside screen boundaries
-                    final pipWidth = 150.0;
-                    final pipHeight = 200.0;
                     _pipPosition = Offset(
-                      _pipPosition.dx.clamp(0, screenSize.width - pipWidth),
-                      _pipPosition.dy.clamp(0, screenSize.height - pipHeight),
+                      _pipPosition.dx.clamp(0, screenSize.width - 150),
+                      _pipPosition.dy.clamp(0, screenSize.height - 200),
                     );
                   });
                 },
                 child: Container(
-                  width: 150,
-                  height: 200,
+                  width: 150, height: 200,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 6,
-                      )
-                    ],
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _mapFullScreen
-                      ? _buildCameraPreview()
-                      : IgnorePointer(
-                          ignoring: true,
-                          child: _buildGoogleMap(),
-                        ),
+                  child: _mapFullScreen ? _buildCameraPreview() : IgnorePointer(ignoring: true, child: _buildGoogleMap()),
                 ),
               ),
             ),
@@ -413,53 +406,23 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Widget _buildSearchBar({bool inBanner = false}) {
     return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      height: 50, padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(38),
-        boxShadow: inBanner
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 4,
-                  offset: Offset(0, 4),
-                )
-              ],
+        color: Colors.white, borderRadius: BorderRadius.circular(38),
+        boxShadow: inBanner ? null : const [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 4))],
       ),
       child: Row(
         children: [
           Image.asset('assets/maps-pin.png', width: 28, height: 28),
           const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: const InputDecoration(
-                hintText: 'Search here',
-                border: InputBorder.none,
-              ),
-            ),
-          ),
+          Expanded(child: TextField(controller: _searchController, decoration: const InputDecoration(hintText: 'Search here', border: InputBorder.none))),
           if (!inBanner)
             GestureDetector(
               onTap: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const UserProfile(),
-                  ),
-                );
-
-                if (result is File) {
-                  setState(() => _profileImage = result);
-                }
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const UserProfile()));
+                if (result is File) setState(() => _profileImage = result);
               },
-              child: ClipOval(
-                child: _profileImage != null
-                    ? Image.file(_profileImage!, width: 32, height: 32)
-                    : Image.asset('assets/profile.png', width: 32, height: 32),
-              ),
+              child: ClipOval(child: _profileImage != null ? Image.file(_profileImage!, width: 32, height: 32, fit: BoxFit.cover) : Image.asset('assets/profile.png', width: 32, height: 32)),
             ),
         ],
       ),
@@ -468,14 +431,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   List<String> _getResults() {
     final query = _searchController.text.toLowerCase().trim();
-
     if (query.isEmpty) return [];
-
-    return [
-      'STAR Tollway Batangas',
-      'STAR Tollway (AutoSweep)',
-      'STAR Tollway Start',
-    ].where((item) => item.toLowerCase().contains(query)).toList();
+    return ['STAR Tollway Batangas', 'STAR Tollway (AutoSweep)', 'STAR Tollway Start'].where((item) => item.toLowerCase().contains(query)).toList();
   }
 
   Widget _buildResultItem(String text) {
@@ -493,58 +450,25 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Widget _circleButton(String asset, double size) {
     return Container(
-      width: 55,
-      height: 55,
-      decoration: const BoxDecoration(
-        color: Color(0xFF21709D),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 4,
-            offset: Offset(0, 3),
-          )
-        ],
-      ),
-      child: Center(
-        child: Image.asset(asset, width: size, height: size),
-      ),
+      width: 55, height: 55,
+      decoration: const BoxDecoration(color: Color(0xFF21709D), shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 3))]),
+      child: Center(child: Image.asset(asset, width: size, height: size)),
     );
   }
 
   Widget _buildDetectionStatusCard() {
     final detection = _latestDetection;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xBF000000),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white24),
-      ),
+      decoration: BoxDecoration(color: const Color(0xBF000000), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            _modelStatus,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          Text(_modelStatus, style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
           if (detection != null) ...[
             const SizedBox(height: 6),
-            Text(
-              'Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                color: Colors.white,
-                fontSize: 12,
-              ),
-            ),
+            Text('Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12)),
           ],
         ],
       ),
