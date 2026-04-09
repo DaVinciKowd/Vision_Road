@@ -123,6 +123,7 @@ flutter:
     - assets/drive-dark.png
     - assets/map-placeholder.png
     - assets/footer.png
+    - assets/user_location.png
   
 
   fonts:

@@ -46,6 +46,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
 
+  // smoothed heading
+  double _smoothedHeading =0.0;
+
+  //Custom User Marker
+  BitmapDescriptor? _userIcon;
+
   /// PICTURE IN PICTURE TOGGLE
   bool _mapFullScreen = false;
 
@@ -60,6 +66,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   @override
   void initState() {
     super.initState();
+    _loadUserMarker();
     _searchController.text = widget.destination;
 
     _searchController.addListener(() {
@@ -76,6 +83,15 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     _initializeNavigationData();
     _startLocationTracking(); 
     _initializeCamera();
+  }
+
+  ///Load User Icon
+  Future<void> _loadUserMarker() async {
+    _userIcon = await BitmapDescriptor.fromAssetImage(
+      const ImageConfiguration(size: Size (48, 48)),
+      'assets/user_location.png'
+    );
+    if (mounted) setState ((){});
   }
 
   void _initializeNavigationData() {
@@ -116,10 +132,25 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       ),
     ).listen((Position position) {
       LatLng current = LatLng(position.latitude, position.longitude);
+
+      // heading smoothing
+      double rawHeading = position.heading;
+
+      //ignore invalid readings
+      if (rawHeading ==0) {
+        rawHeading = _smoothedHeading;
+      }
+
+      //apply smoothing filter
+      _smoothedHeading = _smoothedHeading == 0
+          ? rawHeading
+          : (_smoothedHeading * 0.8 +  rawHeading * 0.2);
       
       if (mounted) {
         // 1. Update the user position and recalculate the polyline
-        _updateRouteProgress(current);
+        //use smoothed heading
+        //_updateRouteProgress(current, position.heading);
+        _updateRouteProgress(current, _smoothedHeading);
                 
         // Perspective Camera Animation to follow movement
         mapController?.animateCamera(
@@ -127,8 +158,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
             CameraPosition(
               target: current,
               zoom: 18.5, 
-              tilt: 50.0,      
-              bearing: position.heading, 
+              tilt: 60.0,      
+              bearing: _smoothedHeading, 
             ),
           ),
         );
@@ -137,7 +168,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   ///New method: trims the polyline so it always starts from your current dot
-  void _updateRouteProgress(LatLng currentPosition){
+  void _updateRouteProgress(LatLng currentPosition, double heading){
     if (widget.routePoints == null || widget.routePoints!.isEmpty) return;
 
     //Use the original points passed from the previous screen
@@ -186,6 +217,21 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
           endCap: Cap.roundCap,
         ),
       };
+
+      // remove old user marker
+      _markers.removeWhere((m) => m.markerId.value =='user_location');
+
+      // Add Custom User Marker
+      _markers.add (
+        Marker(
+          markerId: const MarkerId('user_location'),
+          position: currentPosition,
+          icon: _userIcon?? BitmapDescriptor.defaultMarker,
+          anchor: const Offset (0.5, 0.5),
+          flat:true,
+          rotation: heading,
+        ),
+      );
     });
   }
 
@@ -258,12 +304,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: _userPosition, zoom: 16),
       onMapCreated: (controller) => mapController = controller,
-      myLocationEnabled: true, // Restores the original pulsing blue dot
+      myLocationEnabled: false, // Restores the original pulsing blue dot
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
       tiltGesturesEnabled: true,
       rotateGesturesEnabled: true,
-      compassEnabled: false,
+      compassEnabled: true,
+      onCameraMove: (position){},
       polylines: _polylines,
       markers: _markers,
     );
@@ -280,8 +327,14 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
-            _mapFullScreen ? _buildGoogleMap() : _buildCameraPreview(),
-
+            _mapFullScreen 
+                ? Stack(
+                    children: [_buildGoogleMap(),
+                    // optional: add ui overlays here if needed
+                    ],
+                  )
+                : _buildCameraPreview(),
+            
             /// HEADER OVERLAY
             Positioned(
               top: 0, left: 0, right: 0,
@@ -297,11 +350,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                 ),
               ),
             ),
-
+            
             /// ML HUD
             Positioned(top: 64, left: 16, right: 16, child: _buildDetectionStatusCard()),
-
+            
             /// FOOTER OVERLAY
+            if (!_mapFullScreen) // hide the footer when map is in fullscreen
             Positioned(
               bottom: 0, left: 0, right: 0,
               child: SizedBox(
@@ -316,7 +370,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                 ),
               ),
             ),
-
+            
             /// CONTROLS
             if (!_showResults)
               Positioned(
