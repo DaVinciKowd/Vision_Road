@@ -160,15 +160,21 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     }
     // Create a new path: Start exactly at the user's GPS dot, 
     // then continue with the rest of the original points.
-    List<LatLng> updatedPath = [currentPosition];
+    //List<LatLng> updatedPath = [currentPosition];
+
+    // Create a new path: start from the nearest point on the route (NOT the user GPS)
+    List<LatLng> updatedPath = [];
 
     // Only add points that are ahead of our current "closest" index
     if (closestPointIndex < fullRoute.length - 1) {
-      updatedPath.addAll(fullRoute.sublist(closestPointIndex + 1));
+      updatedPath = fullRoute.sublist(closestPointIndex);
+    } else {
+      updatedPath = [fullRoute.last];
     }
 
     setState (() {
       _userPosition = currentPosition;
+
       _polylines = {
         Polyline(
           polylineId: const PolylineId('nav_route'),
@@ -320,7 +326,21 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
             Positioned(
               right: 17, bottom: bottomPadding + 79,
-              child: _circleButton('assets/location.png', 36),
+              child: GestureDetector (
+                onTap: () {
+                  if(mapController != null) {
+                    mapController!.animateCamera(
+                      CameraUpdate.newCameraPosition(
+                        CameraPosition(
+                          target: _userPosition,
+                          zoom: 18.5,
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: _circleButton('assets/location.png', 36),
+              ),
             ),
 
             Positioned(
