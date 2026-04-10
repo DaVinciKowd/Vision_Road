@@ -12,15 +12,21 @@ class UserProfileService {
     required String username,
     required String email,
     required String phoneNumber,
+    bool setCreatedAt = false,
   }) async {
+    final data = <String, dynamic>{
+      'username': username,
+      'email': email,
+      'phoneNumber': phoneNumber,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (setCreatedAt) {
+      data['createdAt'] = FieldValue.serverTimestamp();
+    }
+
     await _db.collection('users').doc(uid).set(
-      <String, dynamic>{
-        'username': username,
-        'email': email,
-        'phoneNumber': phoneNumber,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      },
+      data,
       SetOptions(merge: true),
     );
   }

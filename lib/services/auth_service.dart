@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 // import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
@@ -65,6 +66,7 @@ class AuthService {
       username: username,
       email: user.email,
       phoneNumber: phoneNumber,
+      setCreatedAt: true,
     );
 
     await _saveUser(user);
@@ -148,6 +150,17 @@ class AuthService {
       }
 
       throw Exception('Unable to update profile right now. Please try again.');
+    } on FirebaseException catch (e) {
+      final code = e.code.toLowerCase();
+      if (code.contains('permission-denied')) {
+        throw Exception(
+          'Profile was changed, but Firestore denied write access. Check your Firestore security rules for users/{uid}.',
+        );
+      }
+
+      throw Exception('Unable to sync profile data to Firestore: ${e.message ?? e.code}.');
+    } catch (_) {
+      throw Exception('Unexpected error while updating profile. Please try again.');
     }
   }
 
