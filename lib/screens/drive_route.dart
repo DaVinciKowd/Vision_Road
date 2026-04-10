@@ -430,6 +430,15 @@ class _DriveRoutePageState extends State<DriveRoutePage> {
                       height: 49,
                       child: ElevatedButton(
                         onPressed: () {
+                          if (_isLoadingRoute) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please wait while the route is loading.'),
+                              ),
+                            );
+                            return;
+                          }
+
                           final routePoints = _polylines.isNotEmpty
                               ? _polylines.first.points.toList()
                               : <LatLng>[];

@@ -247,26 +247,28 @@ class _UserProfileState extends State<UserProfile> {
                           height: 45,
                           child: ElevatedButton(
                             onPressed: () async {
-                              final updatedData = 
-                                  await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => EditProfile(
-                                    initialUsername: user.username,
-                                    initialEmail: user.email,
-                                    initialPhone: user.phoneNumber,
-                                    initialProfileImage: _profileImage,
+                              try {
+                                final updatedData = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => EditProfile(
+                                      initialUsername: user.username,
+                                      initialEmail: user.email,
+                                      initialPhone: user.phoneNumber,
+                                      initialProfileImage: _profileImage,
+                                    ),
                                   ),
-                                ),
-                              );
+                                );
 
-                              if (!mounted) {
-                                return;
-                              }
+                                if (!mounted) {
+                                  return;
+                                }
 
-                              if (updatedData != null &&
-                                  updatedData 
-                                      is Map<String, dynamic>) {
+                                if (updatedData == null ||
+                                    updatedData is! Map<String, dynamic>) {
+                                  return;
+                                }
+
                                 final username =
                                     (updatedData['username'] as String? ?? '')
                                         .trim();
@@ -283,7 +285,8 @@ class _UserProfileState extends State<UserProfile> {
                                     phone.isNotEmpty;
 
                                 if (hasTextUpdates) {
-                                  final isUpdated = await authProvider.updateProfile(
+                                  final isUpdated =
+                                      await authProvider.updateProfile(
                                     username: username.isEmpty
                                         ? null
                                         : username,
@@ -308,7 +311,8 @@ class _UserProfileState extends State<UserProfile> {
                                     } else if (rawError.contains('invalid-email')) {
                                       errorMessage =
                                           'Please enter a valid email address.';
-                                    } else if (rawError.contains('requires-recent-login')) {
+                                    } else if (rawError
+                                        .contains('requires-recent-login')) {
                                       errorMessage =
                                           'For security, please sign in again before changing your email.';
                                     }
@@ -320,10 +324,24 @@ class _UserProfileState extends State<UserProfile> {
                                   }
                                 }
 
-                                setState(() {
-                                  _profileImage = 
-                                      updatedData['image'] as File?;
-                                });
+                                final dynamic imageValue = updatedData['image'];
+                                if (imageValue == null || imageValue is File) {
+                                  setState(() {
+                                    _profileImage = imageValue as File?;
+                                  });
+                                }
+                              } catch (e) {
+                                if (!context.mounted) {
+                                  return;
+                                }
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Profile updated, but the app hit an unexpected error: $e',
+                                    ),
+                                  ),
+                                );
                               }
                             },
                             style: ElevatedButton.styleFrom(

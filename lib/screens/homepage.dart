@@ -26,7 +26,7 @@ class _HomePageState extends State<HomePage> {
   LatLng? _selectedDestinationPosition;
 
   // --- GOOGLE MAPS & LOCATION STATE ---
-  late GoogleMapController mapController;
+  GoogleMapController? _mapController;
   
   // Default fallback (Batangas), updated immediately by Geolocation
   LatLng _userPosition = const LatLng(13.7565, 121.0583); 
@@ -89,8 +89,8 @@ class _HomePageState extends State<HomePage> {
       _userPosition = LatLng(position.latitude, position.longitude);
     });
 
-    // Animate camera to the user's live location
-    mapController.animateCamera(CameraUpdate.newLatLngZoom(_userPosition, 14));
+    // Animate camera to the user's live location once the map is ready.
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_userPosition, 14));
   }
 
   @override
@@ -158,7 +158,7 @@ class _HomePageState extends State<HomePage> {
       debugPrint("Directions API Error: ${result.errorMessage}");
     }
 
-    mapController.animateCamera(CameraUpdate.newLatLngZoom(position, 14));
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(position, 14));
   }
 
   String getGreeting() {
@@ -225,7 +225,10 @@ class _HomePageState extends State<HomePage> {
                 zoom: 14.0,
               ),
               onMapCreated: (GoogleMapController controller) {
-                mapController = controller;
+                _mapController = controller;
+                _mapController?.animateCamera(
+                  CameraUpdate.newLatLngZoom(_userPosition, 14),
+                );
               },
               myLocationEnabled: true,       // This MUST be true to see the blue dot
               myLocationButtonEnabled: true,
@@ -324,7 +327,14 @@ class _HomePageState extends State<HomePage> {
               right: 17,
               bottom: bottomPadding + 79,
               child: GestureDetector(
-                onTap: () => mapController.animateCamera(CameraUpdate.newLatLng(_userPosition)),
+                onTap: () {
+                  if (_mapController == null) {
+                    return;
+                  }
+                  _mapController!.animateCamera(
+                    CameraUpdate.newLatLng(_userPosition),
+                  );
+                },
                 child: _circleButton('assets/location.png', 36),
               ),
             ),
@@ -334,24 +344,37 @@ class _HomePageState extends State<HomePage> {
               right: 17,
               bottom: bottomPadding + 154,
               child: GestureDetector(
-                onTap: _selectedDestination == null
-                    ? null
-                    : () async {
-                        _saveCurrentState();
-                        final stepsBack = await Navigator.push<int>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => DriveRoutePage(
-                              destination: _selectedDestination!,
-                              destinationPosition: _selectedDestinationPosition,
-                              currentPosition: _userPosition,
-                            ),
-                          ),
-                        );
-                        if (stepsBack != null) {
-                          _restorePreviousState(steps: stepsBack);
-                        }
-                      },
+                onTap: () async {
+                  if (_selectedDestination == null ||
+                      _selectedDestinationPosition == null) {
+                    if (!context.mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Select a destination first by tapping the map or search result.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+
+                  _saveCurrentState();
+                  final stepsBack = await Navigator.push<int>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DriveRoutePage(
+                        destination: _selectedDestination!,
+                        destinationPosition: _selectedDestinationPosition,
+                        currentPosition: _userPosition,
+                      ),
+                    ),
+                  );
+                  if (stepsBack != null) {
+                    _restorePreviousState(steps: stepsBack);
+                  }
+                },
                 child: _circleButton('assets/drive.png', 28),
               ),
             ),
