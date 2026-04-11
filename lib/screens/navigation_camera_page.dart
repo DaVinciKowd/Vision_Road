@@ -25,7 +25,7 @@ class NavigationCameraPage extends StatefulWidget {
 }
 
 class _NavigationCameraPageState extends State<NavigationCameraPage> {
-  static const String _ptModelAssetPath = 'assets/models/road_hazard_detector.pt';
+  static const String _ptModelAssetPath = 'assets/models/road_hazard_detector.tflite';
 
   /// CAMERA
   CameraController? _cameraController;
@@ -35,7 +35,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   final PtModelDetector _detector = PtModelDetector(modelAssetPath: _ptModelAssetPath);
   bool _isProcessingFrame = false;
   DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
-  static const Duration _inferenceInterval = Duration(milliseconds: 400);
+  static const Duration _inferenceInterval = Duration(milliseconds: 900);
   DetectionResult? _latestDetection;
   String _modelStatus = 'Preparing model...';
 
@@ -48,6 +48,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   // smoothed heading
   double _smoothedHeading =0.0;
+  DateTime _lastNavUiUpdateAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _navUiUpdateInterval = Duration(milliseconds: 300);
 
   //Custom User Marker
   BitmapDescriptor? _userIcon;
@@ -128,7 +130,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation, 
-        distanceFilter: 2, //only updates every 2 meters to save battery/cpu 
+        distanceFilter: 8,
       ),
     ).listen((Position position) {
       LatLng current = LatLng(position.latitude, position.longitude);
@@ -145,6 +147,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       _smoothedHeading = _smoothedHeading == 0
           ? rawHeading
           : (_smoothedHeading * 0.8 +  rawHeading * 0.2);
+
+      final now = DateTime.now();
+      if (now.difference(_lastNavUiUpdateAt) < _navUiUpdateInterval) {
+        return;
+      }
+      _lastNavUiUpdateAt = now;
       
       if (mounted) {
         // 1. Update the user position and recalculate the polyline
@@ -243,13 +251,15 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         setState(() => _modelStatus = 'No camera');
         return;
       }
-      _cameraController = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
+      _cameraController = CameraController(cameras.first, ResolutionPreset.low, enableAudio: false);
       _initializeControllerFuture = _cameraController!.initialize();
       await _initializeControllerFuture;
       await _detector.initialize();
       if (_detector.isModelAssetFound) {
         _modelStatus = 'Model ready';
         await _startImageStream();
+      } else {
+        _modelStatus = 'Model missing/unsupported';
       }
       if (mounted) setState(() {});
     } catch (e) {
