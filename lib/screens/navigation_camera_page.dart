@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'dart:io';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:geolocator/geolocator.dart';
 import 'user_profile.dart';
 import 'drive_route.dart';
@@ -35,9 +36,10 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   final PtModelDetector _detector = PtModelDetector(modelAssetPath: _ptModelAssetPath);
   bool _isProcessingFrame = false;
   DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
-  static const Duration _inferenceInterval = Duration(milliseconds: 900);
+  static const Duration _inferenceInterval = Duration(milliseconds: 2500);
   DetectionResult? _latestDetection;
   String _modelStatus = 'Preparing model...';
+  bool _isDetectionEnabled = false;
 
   /// MAP & NAVIGATION
   GoogleMapController? mapController;
@@ -129,8 +131,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   void _startLocationTracking() {
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation, 
-        distanceFilter: 8,
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 12,
       ),
     ).listen((Position position) {
       LatLng current = LatLng(position.latitude, position.longitude);
@@ -155,6 +157,11 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       _lastNavUiUpdateAt = now;
       
       if (mounted) {
+        if (!_mapFullScreen) {
+          _userPosition = current;
+          return;
+        }
+
         // 1. Update the user position and recalculate the polyline
         //use smoothed heading
         //_updateRouteProgress(current, position.heading);
@@ -256,8 +263,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       await _initializeControllerFuture;
       await _detector.initialize();
       if (_detector.isModelAssetFound) {
-        _modelStatus = 'Model ready';
-        await _startImageStream();
+        _modelStatus = 'Model ready (tap Enable Detection)';
       } else {
         _modelStatus = 'Model missing/unsupported';
       }
@@ -271,12 +277,65 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     final controller = _cameraController;
     if (controller == null || controller.value.isStreamingImages) return;
     await controller.startImageStream((CameraImage image) {
-      if (!mounted || _isProcessingFrame) return;
+      if (!mounted || !_isDetectionEnabled || _isProcessingFrame) return;
       final now = DateTime.now();
       if (now.difference(_lastInferenceAt) < _inferenceInterval) return;
       _isProcessingFrame = true;
       _lastInferenceAt = now;
-      _runDetection(image).whenComplete(() => _isProcessingFrame = false);
+
+      // Copy only luminance bytes quickly so the camera callback can return fast.
+      final Uint8List yCopy = Uint8List.fromList(image.planes.first.bytes);
+      final int width = image.width;
+      final int height = image.height;
+
+      Future<void>(() => _runDetectionFrame(yCopy, width, height))
+          .whenComplete(() => _isProcessingFrame = false);
+    });
+  }
+
+  Future<void> _runDetectionFrame(
+    Uint8List yPlane,
+    int width,
+    int height,
+  ) async {
+    final results = await _detector.detectFromLuma(yPlane, width, height);
+    if (!mounted || results.isEmpty) return;
+
+    final next = results.first;
+    final prev = _latestDetection;
+    if (prev != null &&
+        prev.label == next.label &&
+        (prev.confidence - next.confidence).abs() < 0.03) {
+      return;
+    }
+
+    setState(() => _latestDetection = next);
+  }
+
+  Future<void> _toggleDetection() async {
+    final controller = _cameraController;
+    if (controller == null || !_detector.isModelAssetFound) {
+      return;
+    }
+
+    if (_isDetectionEnabled) {
+      if (controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+      if (!mounted) return;
+      setState(() {
+        _isDetectionEnabled = false;
+        _isProcessingFrame = false;
+        _modelStatus = 'Model ready (detection paused)';
+      });
+      return;
+    }
+
+    await _startImageStream();
+    if (!mounted) return;
+    setState(() {
+      _isDetectionEnabled = true;
+      _modelStatus = 'Detecting hazards';
     });
   }
 
@@ -289,6 +348,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   @override
   void dispose() {
     _positionStream?.cancel();
+    if (_cameraController?.value.isStreamingImages ?? false) {
+      _cameraController?.stopImageStream();
+    }
     _cameraController?.dispose();
     _detector.dispose();
     _searchController.dispose();
@@ -363,6 +425,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
             
             /// ML HUD
             Positioned(top: 64, left: 16, right: 16, child: _buildDetectionStatusCard()),
+
+            Positioned(
+              bottom: bottomPadding + 229,
+              right: 16,
+              child: _buildDetectionToggleButton(),
+            ),
             
             /// FOOTER OVERLAY
             if (!_mapFullScreen) // hide the footer when map is in fullscreen
@@ -392,7 +460,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               right: 17, bottom: bottomPadding + 79,
               child: GestureDetector (
                 onTap: () {
-                  if(mapController != null) {
+                  if (_mapFullScreen && mapController != null) {
                     mapController!.animateCamera(
                       CameraUpdate.newCameraPosition(
                         CameraPosition(
@@ -478,7 +546,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                     boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _mapFullScreen ? _buildCameraPreview() : IgnorePointer(ignoring: true, child: _buildGoogleMap()),
+                  child: _mapFullScreen
+                      ? _buildCameraPreview()
+                      : _buildMapPipPlaceholder(),
                 ),
               ),
             ),
@@ -540,6 +610,30 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     );
   }
 
+  Widget _buildMapPipPlaceholder() {
+    return Container(
+      color: const Color(0xFF12384D),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.map, color: Colors.white, size: 30),
+            SizedBox(height: 8),
+            Text(
+              'Tap to open map',
+              style: TextStyle(
+                color: Colors.white,
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDetectionStatusCard() {
     final detection = _latestDetection;
     return Container(
@@ -555,6 +649,76 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
             Text('Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12)),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildDetectionToggleButton() {
+    final isEnabled = _isDetectionEnabled;
+    final canUseModel = _detector.isModelAssetFound;
+
+    return Tooltip(
+      message: canUseModel
+          ? (isEnabled ? 'Pause Detection' : 'Enable Detection')
+          : 'Model Unavailable',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: canUseModel ? _toggleDetection : null,
+          customBorder: const CircleBorder(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            width: 55,
+            height: 55,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: canUseModel
+                    ? (isEnabled
+                        ? const [Color(0xFFB71C1C), Color(0xFF7F1111)]
+                        : const [Color(0xFF2D86B8), Color(0xFF1A5C80)])
+                    : const [Color(0xFF6E6E6E), Color(0xFF4F4F4F)],
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x40000000),
+                  blurRadius: 4,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Center(
+                  child: Icon(
+                    isEnabled ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+                Positioned(
+                  right: 10,
+                  top: 10,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: canUseModel
+                          ? (isEnabled
+                              ? const Color(0xFF8BFFB2)
+                              : const Color(0xFFFFE08A))
+                          : const Color(0xFFFFB3B3),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
