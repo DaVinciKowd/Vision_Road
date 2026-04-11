@@ -5,6 +5,8 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart'; // Added for Geolocation
 import 'user_profile.dart';
 import 'drive_route.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 
 class HomePage extends StatefulWidget {
   final bool pickingCurrentLocation;
@@ -212,6 +214,8 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final authProvider = Provider.of<AuthProvider>(context);
+    final username = authProvider.currentUser?.username ?? "User";
 
     return Scaffold(
       body: GestureDetector(
@@ -297,8 +301,8 @@ class _HomePageState extends State<HomePage> {
                           color: Colors.white,
                         ),
                       ),
-                      const Text(
-                        'User!',
+                      Text(
+                        '$username!',
                         style: TextStyle(
                           fontSize: 36,
                           fontFamily:'Inter',
