@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'edit_profile.dart';
 import '../providers/auth_provider.dart';
+import 'emergency_contact.dart';
 
 class UserProfile extends StatefulWidget {
   const UserProfile({super.key});
@@ -237,6 +238,37 @@ class _UserProfileState extends State<UserProfile> {
                             ),
                           ),
                         ),
+
+                        const SizedBox(height: 20),
+
+                        SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.75,
+                          height: 45,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const EmergencyContactPage(),
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD9D9D9),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text(
+                              'Emergency Contacts',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontFamily: 'Inter',
+                              color: Colors.black,
+                            ),
+                          ),
+                        ),
+                      ),
 
                         const SizedBox(height: 78),
 
