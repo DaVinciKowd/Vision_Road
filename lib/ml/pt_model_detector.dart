@@ -2,16 +2,19 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'dart:ui';
 import 'dart:typed_data';
 
 class DetectionResult {
   final String label;
   final double confidence;
+  final Rect boundingBox;
   final DateTime detectedAt;
 
   const DetectionResult({
     required this.label,
     required this.confidence,
+    required this.boundingBox,
     required this.detectedAt,
   });
 }
@@ -25,8 +28,8 @@ class PtModelDetector {
   bool _isModelAssetFound = false;
   Interpreter? _interpreter;
 
-  int _inputHeight = 224;
-  int _inputWidth = 224;
+  int _inputHeight = 640;
+  int _inputWidth = 640;
   int _inputChannels = 3;
   List<int> _outputShape = const [1, 1];
   List<List<List<List<double>>>>? _inputBuffer;
@@ -34,6 +37,8 @@ class PtModelDetector {
 
   bool get isInitialized => _isInitialized;
   bool get isModelAssetFound => _isModelAssetFound;
+  int get inputWidth => _inputWidth;
+  int get inputHeight => _inputHeight;
 
   Future<void> initialize() async {
     try {
@@ -137,6 +142,7 @@ class PtModelDetector {
       return DetectionResult(
         label: bestIndex == 0 ? 'road_hazard' : 'class_$bestIndex',
         confidence: bestScore,
+        boundingBox: Rect.zero,
         detectedAt: DateTime.now(),
       );
     }
@@ -155,8 +161,13 @@ class PtModelDetector {
 
         int bestClass = 0;
         double bestConfidence = 0.0;
+        Rect bestBox = Rect.zero;
 
         for (int b = 0; b < boxes; b++) {
+          final x = ((channelMajor[0] as List)[b] as num).toDouble();
+          final y = ((channelMajor[1] as List)[b] as num).toDouble();
+          final width = ((channelMajor[2] as List)[b] as num).toDouble();
+          final height = ((channelMajor[3] as List)[b] as num).toDouble();
           final objectness = channels > 4
               ? ((channelMajor[4] as List)[b] as num).toDouble()
               : 1.0;
@@ -181,12 +192,14 @@ class PtModelDetector {
           if (classScore > bestConfidence) {
             bestConfidence = classScore;
             bestClass = classIndex;
+            bestBox = _buildBoundingBox(x, y, width, height);
           }
         }
 
         return DetectionResult(
           label: bestClass == 0 ? 'road_hazard' : 'class_$bestClass',
           confidence: bestConfidence,
+          boundingBox: bestBox,
           detectedAt: DateTime.now(),
         );
       }
@@ -198,9 +211,14 @@ class PtModelDetector {
 
       int bestClass = 0;
       double bestConfidence = 0.0;
+      Rect bestBox = Rect.zero;
 
       for (int b = 0; b < boxes; b++) {
         final row = boxMajor[b] as List;
+        final x = (row[0] as num).toDouble();
+        final y = (row[1] as num).toDouble();
+        final width = (row[2] as num).toDouble();
+        final height = (row[3] as num).toDouble();
         final objectness = channels > 4 ? (row[4] as num).toDouble() : 1.0;
 
         double classScore = objectness;
@@ -223,17 +241,42 @@ class PtModelDetector {
         if (classScore > bestConfidence) {
           bestConfidence = classScore;
           bestClass = classIndex;
+          bestBox = _buildBoundingBox(x, y, width, height);
         }
       }
 
       return DetectionResult(
         label: bestClass == 0 ? 'road_hazard' : 'class_$bestClass',
         confidence: bestConfidence,
+        boundingBox: bestBox,
         detectedAt: DateTime.now(),
       );
     }
 
     return null;
+  }
+
+  Rect _buildBoundingBox(
+    double x,
+    double y,
+    double width,
+    double height,
+  ) {
+    final looksNormalized = [x, y, width, height].every((value) => value.abs() <= 2.0);
+    final scaleX = looksNormalized ? _inputWidth.toDouble() : 1.0;
+    final scaleY = looksNormalized ? _inputHeight.toDouble() : 1.0;
+
+    final boxWidth = (width * scaleX).abs().clamp(1.0, _inputWidth.toDouble());
+    final boxHeight = (height * scaleY).abs().clamp(1.0, _inputHeight.toDouble());
+    final centerX = x * scaleX;
+    final centerY = y * scaleY;
+
+    final left = (centerX - boxWidth / 2).clamp(0.0, _inputWidth.toDouble());
+    final top = (centerY - boxHeight / 2).clamp(0.0, _inputHeight.toDouble());
+    final right = (left + boxWidth).clamp(0.0, _inputWidth.toDouble());
+    final bottom = (top + boxHeight).clamp(0.0, _inputHeight.toDouble());
+
+    return Rect.fromLTRB(left, top, right, bottom);
   }
 
   List<List<List<List<double>>>> _buildInputTensor(

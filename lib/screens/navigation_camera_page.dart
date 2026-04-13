@@ -258,7 +258,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         setState(() => _modelStatus = 'No camera');
         return;
       }
-      _cameraController = CameraController(cameras.first, ResolutionPreset.low, enableAudio: false);
+      _cameraController = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
       _initializeControllerFuture = _cameraController!.initialize();
       await _initializeControllerFuture;
       await _detector.initialize();
@@ -365,10 +365,29 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         if (snapshot.connectionState == ConnectionState.done) {
           final size = MediaQuery.of(context).size;
           final scale = 1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
-          return Transform.scale(scale: scale, child: Center(child: CameraPreview(_cameraController!)));
+          return Transform.scale(
+            scale: scale,
+            child: Center(
+              child: Stack(
+                children: [
+                  CameraPreview(_cameraController!),
+                  Positioned.fill(child: IgnorePointer(child: _buildDetectionOverlay())),
+                ],
+              ),
+            ),
+          );
         }
         return const Center(child: CircularProgressIndicator());
       },
+    );
+  }
+
+  Widget _buildDetectionOverlay() {
+    return CustomPaint(
+      painter: _DetectionOverlayPainter(
+        detection: _latestDetection,
+        modelSize: Size(_detector.inputWidth.toDouble(), _detector.inputHeight.toDouble()),
+      ),
     );
   }
 
@@ -721,5 +740,74 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         ),
       ),
     );
+  }
+}
+
+class _DetectionOverlayPainter extends CustomPainter {
+  _DetectionOverlayPainter({required this.detection, required this.modelSize});
+
+  final DetectionResult? detection;
+  final Size modelSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final result = detection;
+    if (result == null || result.boundingBox.isEmpty) {
+      return;
+    }
+
+    final scaleX = size.width / modelSize.width;
+    final scaleY = size.height / modelSize.height;
+    final box = Rect.fromLTRB(
+      result.boundingBox.left * scaleX,
+      result.boundingBox.top * scaleY,
+      result.boundingBox.right * scaleX,
+      result.boundingBox.bottom * scaleY,
+    );
+
+    final strokePaint = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    final fillPaint = Paint()
+      ..color = const Color(0x33FFD54F)
+      ..style = PaintingStyle.fill;
+
+    final rrect = RRect.fromRectAndRadius(box, const Radius.circular(8));
+    canvas.drawRRect(rrect, fillPaint);
+    canvas.drawRRect(rrect, strokePaint);
+
+    final label = '${result.label} ${(result.confidence * 100).toStringAsFixed(1)}%';
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          fontFamily: 'Inter',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: size.width - 12);
+
+    final labelWidth = textPainter.width + 12;
+    final labelHeight = textPainter.height + 8;
+    final labelTop = box.top - labelHeight - 6 >= 0 ? box.top - labelHeight - 6 : box.top + 6;
+    final labelLeft = box.left.clamp(6.0, size.width - labelWidth - 6);
+    final labelRect = Rect.fromLTWH(labelLeft, labelTop, labelWidth, labelHeight);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(labelRect, const Radius.circular(6)),
+      Paint()..color = const Color(0xCC000000),
+    );
+    textPainter.paint(canvas, Offset(labelRect.left + 6, labelRect.top + 4));
+  }
+
+  @override
+  bool shouldRepaint(covariant _DetectionOverlayPainter oldDelegate) {
+    return oldDelegate.detection != detection || oldDelegate.modelSize != modelSize;
   }
 }
