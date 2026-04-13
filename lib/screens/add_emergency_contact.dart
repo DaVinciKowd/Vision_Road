@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+
 import 'emergency_contact.dart';
+import '../providers/auth_provider.dart';
 
 class AddEmergencyContactPage extends StatefulWidget {
   const AddEmergencyContactPage({super.key});
@@ -15,7 +19,6 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
   final phoneController = TextEditingController();
   final emailController = TextEditingController();
 
-  // FOCUS NODES
   final nameFocus = FocusNode();
   final phoneFocus = FocusNode();
   final emailFocus = FocusNode();
@@ -36,6 +39,28 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
     super.dispose();
   }
 
+  // ✅ NEW: Save to Firestore
+  Future<void> _saveToFirestore(EmergencyContact contact) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    final userId = authProvider.currentUser?.id;
+
+    if (userId == null) {
+      throw Exception("User not logged in");
+    }
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('emergency_contacts')
+        .add({
+      'name': contact.name,
+      'phone': contact.phone,
+      'email': contact.email,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final buttonWidth = MediaQuery.of(context).size.width * 0.75;
@@ -49,7 +74,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // BACK ICON
+            // BACK ICON (UNCHANGED)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
@@ -103,7 +128,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
             const SizedBox(height: 30),
 
-            // FORM
+            // FORM (UNCHANGED)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 25),
               child: Form(
@@ -111,7 +136,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                 child: Column(
                   children: [
 
-                    // NAME (UPDATED)
+                    // NAME
                     TextFormField(
                       controller: nameController,
                       focusNode: nameFocus,
@@ -120,7 +145,6 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                         FocusScope.of(context).requestFocus(phoneFocus);
                       },
 
-                      // ✅ INPUT RESTRICTION
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(
                           RegExp(r"[a-zA-Z\s\.]"),
@@ -138,7 +162,6 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                           return "Enter name";
                         }
 
-                        // safety validation
                         if (!RegExp(r"^[a-zA-Z\s\.]+$").hasMatch(name)) {
                           return "Name can only contain letters and dot";
                         }
@@ -237,7 +260,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
             const Spacer(),
 
-            // SAVE BUTTON
+            // SAVE BUTTON (UPDATED WITH FIRESTORE)
             Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: Center(
@@ -245,7 +268,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                   width: buttonWidth,
                   height: 43,
                   child: ElevatedButton(
-                    onPressed: () {
+                    onPressed: () async {
                       setState(() {
                         isSubmitted = true;
                       });
@@ -257,7 +280,16 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                           email: emailController.text.toLowerCase(),
                         );
 
-                        Navigator.pop(context, newContact);
+                        try {
+                          await _saveToFirestore(newContact);
+
+                          if (!context.mounted) return;
+                          Navigator.pop(context, newContact);
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Error: $e")),
+                          );
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -284,7 +316,6 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
     );
   }
 
-  // reusable input style
   InputDecoration _inputDecoration(String hint, IconData icon) {
     return InputDecoration(
       prefixIcon: Icon(icon, color: Colors.grey, size: 19),
