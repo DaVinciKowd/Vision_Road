@@ -28,6 +28,12 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
   OverlayEntry? _messageOverlay;
 
+  // ================================
+  // NEW: ERROR FLAGS (ADDED ONLY)
+  // ================================
+  bool phoneExistsError = false;
+  bool emailExistsError = false;
+
   @override
   void dispose() {
     nameController.dispose();
@@ -42,7 +48,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
   }
 
   // ================================
-  // CUSTOM OVERLAY (UNDO STYLE)
+  // CUSTOM OVERLAY (UNCHANGED)
   // ================================
   void _showMessage(String message) {
     _messageOverlay?.remove();
@@ -114,17 +120,16 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
   }
 
   // ================================
-  // CHECK DUPLICATE (PHONE OR EMAIL)
+  // DUPLICATE CHECK (IMPROVED ONLY)
   // ================================
-  Future<bool> _isDuplicate(String userId, String phone, String email) async {
+  Future<Map<String, bool>> _checkDuplicates(
+      String userId, String phone, String email) async {
     final phoneCheck = await FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
         .collection('emergency_contacts')
         .where('phone', isEqualTo: phone)
         .get();
-
-    if (phoneCheck.docs.isNotEmpty) return true;
 
     final emailCheck = await FirebaseFirestore.instance
         .collection('users')
@@ -133,13 +138,14 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
         .where('email', isEqualTo: email)
         .get();
 
-    if (emailCheck.docs.isNotEmpty) return true;
-
-    return false;
+    return {
+      'phoneExists': phoneCheck.docs.isNotEmpty,
+      'emailExists': emailCheck.docs.isNotEmpty,
+    };
   }
 
   // ================================
-  // SAVE TO FIRESTORE
+  // SAVE TO FIRESTORE (UNCHANGED)
   // ================================
   Future<void> _saveToFirestore(EmergencyContact contact) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -162,6 +168,46 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
   }
 
   // ================================
+  // INPUT DECORATION (MODIFIED ONLY)
+  // ================================
+  InputDecoration _inputDecoration(
+    String hint,
+    IconData icon, {
+    bool hasError = false,
+  }) {
+    return InputDecoration(
+      prefixIcon: Icon(
+        icon,
+        color: hasError ? Colors.red : Colors.grey,
+        size: 19,
+      ),
+      hintText: hint,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding:
+          const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(22),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(22),
+        borderSide: BorderSide(
+          color:
+              hasError ? Colors.red.withOpacity(0.5) : Colors.transparent,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(22),
+        borderSide: BorderSide(
+          color: hasError ? Colors.red : const Color(0xFF21709D),
+          width: 1.5,
+        ),
+      ),
+    );
+  }
+
+  // ================================
   // UI
   // ================================
   @override
@@ -177,7 +223,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // BACK BUTTON
+            // BACK BUTTON (UNCHANGED)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
@@ -228,10 +274,9 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
               ),
             ),
 
-
             const SizedBox(height: 30),
 
-            // FORM
+            // FORM (UNCHANGED VALIDATION LOGIC)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 25),
               child: Form(
@@ -239,7 +284,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                 child: Column(
                   children: [
 
-                    // NAME
+                    // NAME (UNCHANGED)
                     TextFormField(
                       controller: nameController,
                       focusNode: nameFocus,
@@ -269,7 +314,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
                     const SizedBox(height: 15),
 
-                    // PHONE
+                    // PHONE (NOW WITH RED HIGHLIGHT)
                     TextFormField(
                       controller: phoneController,
                       focusNode: phoneFocus,
@@ -279,8 +324,11 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(11),
                       ],
-                      decoration:
-                          _inputDecoration("Phone Number", Icons.phone),
+                      decoration: _inputDecoration(
+                        "Phone Number",
+                        Icons.phone,
+                        hasError: phoneExistsError,
+                      ),
                       validator: (value) {
                         if (!isSubmitted) return null;
 
@@ -296,7 +344,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
                     const SizedBox(height: 15),
 
-                    // EMAIL
+                    // EMAIL (NOW WITH RED HIGHLIGHT)
                     TextFormField(
                       controller: emailController,
                       focusNode: emailFocus,
@@ -308,12 +356,16 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                           emailController.value = TextEditingValue(
                             text: lower,
                             selection: TextSelection.collapsed(
-                                offset: lower.length),
+                              offset: lower.length,
+                            ),
                           );
                         }
                       },
-                      decoration:
-                          _inputDecoration("Email Address", Icons.email),
+                      decoration: _inputDecoration(
+                        "Email Address",
+                        Icons.email,
+                        hasError: emailExistsError,
+                      ),
                       validator: (value) {
                         if (!isSubmitted) return null;
 
@@ -334,7 +386,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
             const Spacer(),
 
-            // SAVE BUTTON
+            // SAVE BUTTON (UPDATED ONLY LOGIC)
             Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: Center(
@@ -343,7 +395,11 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                   height: 43,
                   child: ElevatedButton(
                     onPressed: () async {
-                      setState(() => isSubmitted = true);
+                      setState(() {
+                        isSubmitted = true;
+                        phoneExistsError = false;
+                        emailExistsError = false;
+                      });
 
                       if (!formKey.currentState!.validate()) return;
 
@@ -360,12 +416,22 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                       final email =
                           emailController.text.trim().toLowerCase();
 
-                      final isDuplicate =
-                          await _isDuplicate(userId, phone, email);
+                      final result =
+                          await _checkDuplicates(userId, phone, email);
 
-                      if (isDuplicate) {
-                        _showMessage(
-                            "Contact already exists (phone or email)");
+                      phoneExistsError = result['phoneExists'] ?? false;
+                      emailExistsError = result['emailExists'] ?? false;
+
+                      if (phoneExistsError && emailExistsError) {
+                        _showMessage("Phone number and email already exist");
+                      } else if (phoneExistsError) {
+                        _showMessage("Phone number already exists");
+                      } else if (emailExistsError) {
+                        _showMessage("Email already exists");
+                      }
+
+                      if (phoneExistsError || emailExistsError) {
+                        setState(() {});
                         return;
                       }
 
@@ -391,7 +457,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.white,
-                        fontFamily:'Inter',
+                        fontFamily: 'Inter',
                       ),
                     ),
                   ),
@@ -400,21 +466,6 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration(String hint, IconData icon) {
-    return InputDecoration(
-      prefixIcon: Icon(icon, color: Colors.grey, size: 19),
-      hintText: hint,
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding:
-          const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(22),
-        borderSide: BorderSide.none,
       ),
     );
   }
