@@ -37,7 +37,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   bool _isProcessingFrame = false;
   DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _inferenceInterval = Duration(milliseconds: 2500);
-  DetectionResult? _latestDetection;
+  static const Duration _detectionHoldDuration = Duration(seconds: 4);
+  final ValueNotifier<DetectionResult?> _latestDetectionNotifier = ValueNotifier<DetectionResult?>(null);
+  final ValueNotifier<int> _inferenceCounterNotifier = ValueNotifier<int>(0);
   String _modelStatus = 'Preparing model...';
   bool _isDetectionEnabled = false;
 
@@ -288,8 +290,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       final int width = image.width;
       final int height = image.height;
 
-      Future<void>(() => _runDetectionFrame(yCopy, width, height))
-          .whenComplete(() => _isProcessingFrame = false);
+      unawaited(_runDetectionFrame(yCopy, width, height));
     });
   }
 
@@ -298,18 +299,48 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     int width,
     int height,
   ) async {
-    final results = await _detector.detectFromLuma(yPlane, width, height);
-    if (!mounted || results.isEmpty) return;
+    try {
+      final results = await _detector.detectFromLuma(yPlane, width, height);
+      if (!mounted) return;
 
-    final next = results.first;
-    final prev = _latestDetection;
-    if (prev != null &&
-        prev.label == next.label &&
-        (prev.confidence - next.confidence).abs() < 0.03) {
-      return;
+      if (results.isEmpty) {
+        final latest = _latestDetectionNotifier.value;
+        final shouldClear = latest != null &&
+            DateTime.now().difference(latest.detectedAt) > _detectionHoldDuration;
+        if (shouldClear) {
+          _latestDetectionNotifier.value = null;
+        }
+        return;
+      }
+
+      final next = results.first;
+      final prev = _latestDetectionNotifier.value;
+      if (prev != null && _shouldSkipDetectionUpdate(prev, next)) {
+        return;
+      }
+
+      _latestDetectionNotifier.value = next;
+    } finally {
+      _isProcessingFrame = false;
+      _inferenceCounterNotifier.value = _inferenceCounterNotifier.value + 1;
     }
+  }
 
-    setState(() => _latestDetection = next);
+  bool _shouldSkipDetectionUpdate(DetectionResult prev, DetectionResult next) {
+    if (prev.label != next.label) return false;
+    if ((prev.confidence - next.confidence).abs() >= 0.03) return false;
+
+    final prevBox = prev.boundingBox;
+    final nextBox = next.boundingBox;
+    if (prevBox.isEmpty != nextBox.isEmpty) return false;
+    if (prevBox.isEmpty && nextBox.isEmpty) return true;
+
+    final leftDelta = (prevBox.left - nextBox.left).abs();
+    final topDelta = (prevBox.top - nextBox.top).abs();
+    final rightDelta = (prevBox.right - nextBox.right).abs();
+    final bottomDelta = (prevBox.bottom - nextBox.bottom).abs();
+
+    return leftDelta < 6 && topDelta < 6 && rightDelta < 6 && bottomDelta < 6;
   }
 
   Future<void> _toggleDetection() async {
@@ -342,7 +373,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   Future<void> _runDetection(CameraImage image) async {
     final results = await _detector.detect(image);
     if (!mounted || results.isEmpty) return;
-    setState(() => _latestDetection = results.first);
+    _latestDetectionNotifier.value = results.first;
   }
 
   @override
@@ -353,6 +384,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     }
     _cameraController?.dispose();
     _detector.dispose();
+    _latestDetectionNotifier.dispose();
+    _inferenceCounterNotifier.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -383,10 +416,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   Widget _buildDetectionOverlay() {
-    return CustomPaint(
-      painter: _DetectionOverlayPainter(
-        detection: _latestDetection,
-        modelSize: Size(_detector.inputWidth.toDouble(), _detector.inputHeight.toDouble()),
+    return ValueListenableBuilder<DetectionResult?>(
+      valueListenable: _latestDetectionNotifier,
+      builder: (context, detection, _) => CustomPaint(
+        painter: _DetectionOverlayPainter(
+          detection: detection,
+          modelSize: Size(_detector.inputWidth.toDouble(), _detector.inputHeight.toDouble()),
+        ),
       ),
     );
   }
@@ -654,20 +690,27 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   Widget _buildDetectionStatusCard() {
-    final detection = _latestDetection;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(color: const Color(0xBF000000), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white24)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(_modelStatus, style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-          if (detection != null) ...[
-            const SizedBox(height: 6),
-            Text('Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12)),
-          ],
-        ],
+    return ValueListenableBuilder<int>(
+      valueListenable: _inferenceCounterNotifier,
+      builder: (context, inferenceCount, _) => ValueListenableBuilder<DetectionResult?>(
+        valueListenable: _latestDetectionNotifier,
+        builder: (context, detection, _) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xBF000000), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white24)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_modelStatus, style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text('Inference frames: $inferenceCount', style: const TextStyle(fontFamily: 'Inter', color: Colors.white70, fontSize: 11)),
+              if (detection != null) ...[
+                const SizedBox(height: 6),
+                Text('Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
