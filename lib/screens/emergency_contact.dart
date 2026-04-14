@@ -26,90 +26,33 @@ class EmergencyContactPage extends StatefulWidget {
 }
 
 class _EmergencyContactPageState extends State<EmergencyContactPage> {
-  List<EmergencyContact> contacts = [];
 
   OverlayEntry? _undoOverlay;
   EmergencyContact? _deletedContact;
-  int? _deletedIndex;
   String? _deletedDocId;
 
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadContacts();
-  }
-
   // ================================
-  // LOAD FROM FIRESTORE
-  // ================================
-  Future<void> _loadContacts() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final userId = auth.currentUser?.id;
-
-    if (userId == null) return;
-
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('emergency_contacts')
-        .get();
-
-    setState(() {
-      contacts = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return EmergencyContact(
-          name: data['name'],
-          phone: data['phone'],
-          email: data['email'],
-        );
-      }).toList();
-    });
-  }
-
-  // ================================
-  // ADD CONTACT
+  // ADD CONTACT (NO DOUBLE SAVE)
   // ================================
   void _addContact() async {
-    final newContact = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const AddEmergencyContactPage(),
       ),
     );
 
-    if (newContact != null && newContact is EmergencyContact) {
-      final auth = Provider.of<AuthProvider>(context, listen: false);
-      final userId = auth.currentUser?.id;
-
-      if (userId == null) return;
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('emergency_contacts')
-          .add({
-        'name': newContact.name,
-        'phone': newContact.phone,
-        'email': newContact.email,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      setState(() {
-        contacts.add(newContact);
-      });
-    }
+    // ✅ No setState needed
+    // StreamBuilder auto updates UI
   }
 
   // ================================
   // DELETE + UNDO UI
   // ================================
-  void _showUndoBar(EmergencyContact contact, int index, String docId) {
+  void _showUndoBar(EmergencyContact contact, String docId) {
     _undoOverlay?.remove();
 
     _deletedContact = contact;
-    _deletedIndex = index;
     _deletedDocId = docId;
 
     _undoOverlay = OverlayEntry(
@@ -159,13 +102,12 @@ class _EmergencyContactPageState extends State<EmergencyContactPage> {
       _undoOverlay?.remove();
       _undoOverlay = null;
       _deletedContact = null;
-      _deletedIndex = null;
       _deletedDocId = null;
     });
   }
 
   // ================================
-  // UNDO DELETE (RESTORE FIRESTORE)
+  // UNDO DELETE
   // ================================
   Future<void> _undoDelete() async {
     if (_deletedContact == null || _deletedDocId == null) return;
@@ -187,25 +129,24 @@ class _EmergencyContactPageState extends State<EmergencyContactPage> {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    setState(() {
-      contacts.insert(_deletedIndex!, _deletedContact!);
-    });
-
     _undoOverlay?.remove();
     _undoOverlay = null;
   }
 
   // ================================
-  // UI (UNCHANGED)
+  // UI
   // ================================
   @override
   Widget build(BuildContext context) {
+    final auth = Provider.of<AuthProvider>(context);
+    final userId = auth.currentUser?.id;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
 
-          // HEADER (UNCHANGED)
+          // HEADER
           Container(
             height: 90,
             width: double.infinity,
@@ -244,115 +185,148 @@ class _EmergencyContactPageState extends State<EmergencyContactPage> {
           const SizedBox(height: 20),
 
           Expanded(
-            child: contacts.isEmpty
-                ? const Center(
-                    child: Text(
-                      "No Contacts Yet",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    itemCount: contacts.length,
-                    itemBuilder: (context, index) {
-                      final contact = contacts[index];
+            child: userId == null
+                ? const Center(child: Text("User not logged in"))
+                : StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(userId)
+                        .collection('emergency_contacts')
+                        .orderBy('createdAt', descending: true)
+                        .snapshots(),
 
-                      return Dismissible(
-                        key: UniqueKey(), // ✅ FIX CRASH
+                    builder: (context, snapshot) {
 
-                        direction: DismissDirection.endToStart,
+                      // 🔄 LOADING
+                      if (snapshot.connectionState ==
+                          ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
 
-                        background: Container(),
+                      // ❌ ERROR
+                      if (snapshot.hasError) {
+                        return const Center(
+                          child: Text("Error loading contacts"),
+                        );
+                      }
 
-                        secondaryBackground: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF3B30),
-                            borderRadius: BorderRadius.circular(12),
+                      final docs = snapshot.data!.docs;
+
+                      // 📭 EMPTY
+                      if (docs.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            "No Contacts Yet",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey,
+                            ),
                           ),
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Icon(Icons.delete, color: Colors.white),
-                              SizedBox(width: 8),
-                              Text("Delete",
-                                  style: TextStyle(color: Colors.white)),
-                            ],
-                          ),
-                        ),
+                        );
+                      }
 
-                        onDismissed: (direction) async {
-                          final removed = contact;
+                      // ✅ LIST
+                      return ListView.builder(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 24),
+                        itemCount: docs.length,
+                        itemBuilder: (context, index) {
+                          final doc = docs[index];
+                          final data =
+                              doc.data() as Map<String, dynamic>;
 
-                          final auth = Provider.of<AuthProvider>(
-                              context,
-                              listen: false);
-                          final userId = auth.currentUser?.id;
+                          final contact = EmergencyContact(
+                            name: data['name'],
+                            phone: data['phone'],
+                            email: data['email'],
+                          );
 
-                          if (userId == null) return;
+                          return Dismissible(
+                            key: Key(doc.id),
+                            direction: DismissDirection.endToStart,
 
-                          // find correct doc
-                          final snapshot = await FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(userId)
-                              .collection('emergency_contacts')
-                              .where('phone',
-                                  isEqualTo: removed.phone)
-                              .get();
+                            background: Container(
+                              margin:
+                                  const EdgeInsets.only(bottom: 10),
+                            ),
 
-                          if (snapshot.docs.isNotEmpty) {
-                            final docId = snapshot.docs.first.id;
-
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(userId)
-                                .collection('emergency_contacts')
-                                .doc(docId)
-                                .delete();
-
-                            setState(() {
-                              contacts.removeAt(index);
-                            });
-
-                            _showUndoBar(removed, index, docId);
-                          }
-                        },
-
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0x4DABADAE),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      contact.name.toUpperCase(),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF21709D),
-                                      ),
-                                    ),
-                                    Text(contact.phone),
-                                    Text(contact.email),
-                                  ],
-                                ),
+                            secondaryBackground: Container(
+                              margin:
+                                  const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF3B30),
+                                borderRadius:
+                                    BorderRadius.circular(12),
                               ),
-                            ],
-                          ),
-                        ),
+                              alignment: Alignment.centerRight,
+                              padding:
+                                  const EdgeInsets.only(right: 20),
+                              child: const Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.end,
+                                children: [
+                                  Icon(Icons.delete,
+                                      color: Colors.white),
+                                  SizedBox(width: 8),
+                                  Text("Delete",
+                                      style: TextStyle(
+                                          color: Colors.white)),
+                                ],
+                              ),
+                            ),
+
+                            onDismissed: (direction) async {
+                              await FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(userId)
+                                  .collection(
+                                      'emergency_contacts')
+                                  .doc(doc.id)
+                                  .delete();
+
+                              _showUndoBar(contact, doc.id);
+                            },
+
+                            child: Container(
+                              margin:
+                                  const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0x4DABADAE),
+                                borderRadius:
+                                    BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment
+                                              .start,
+                                      children: [
+                                        Text(
+                                          contact.name
+                                              .toUpperCase(),
+                                          style: const TextStyle(
+                                            fontWeight:
+                                                FontWeight.bold,
+                                            color: Color(
+                                                0xFF21709D),
+                                          ),
+                                        ),
+                                        Text(contact.phone),
+                                        Text(contact.email),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
