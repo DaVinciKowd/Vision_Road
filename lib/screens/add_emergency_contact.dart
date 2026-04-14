@@ -26,6 +26,8 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
   final formKey = GlobalKey<FormState>();
   bool isSubmitted = false;
 
+  OverlayEntry? _messageOverlay;
+
   @override
   void dispose() {
     nameController.dispose();
@@ -39,10 +41,108 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
     super.dispose();
   }
 
-  // ✅ NEW: Save to Firestore
+  // ================================
+  // CUSTOM OVERLAY (UNDO STYLE)
+  // ================================
+  void _showMessage(String message) {
+    _messageOverlay?.remove();
+
+    _messageOverlay = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          bottom: 90,
+          left: 20,
+          right: 20,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.grey.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF21709D).withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Color(0xFF21709D),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    Overlay.of(context).insert(_messageOverlay!);
+
+    Future.delayed(const Duration(seconds: 3), () {
+      _messageOverlay?.remove();
+      _messageOverlay = null;
+    });
+  }
+
+  // ================================
+  // CHECK DUPLICATE (PHONE OR EMAIL)
+  // ================================
+  Future<bool> _isDuplicate(String userId, String phone, String email) async {
+    final phoneCheck = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('emergency_contacts')
+        .where('phone', isEqualTo: phone)
+        .get();
+
+    if (phoneCheck.docs.isNotEmpty) return true;
+
+    final emailCheck = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('emergency_contacts')
+        .where('email', isEqualTo: email)
+        .get();
+
+    if (emailCheck.docs.isNotEmpty) return true;
+
+    return false;
+  }
+
+  // ================================
+  // SAVE TO FIRESTORE
+  // ================================
   Future<void> _saveToFirestore(EmergencyContact contact) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
     final userId = authProvider.currentUser?.id;
 
     if (userId == null) {
@@ -61,6 +161,9 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
     });
   }
 
+  // ================================
+  // UI
+  // ================================
   @override
   Widget build(BuildContext context) {
     final buttonWidth = MediaQuery.of(context).size.width * 0.75;
@@ -74,12 +177,11 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // BACK ICON (UNCHANGED)
+            // BACK BUTTON
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
                 height: 60,
-                width: double.infinity,
                 child: Stack(
                   children: [
                     Positioned(
@@ -126,9 +228,10 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
               ),
             ),
 
+
             const SizedBox(height: 30),
 
-            // FORM (UNCHANGED)
+            // FORM
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 25),
               child: Form(
@@ -141,29 +244,23 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                       controller: nameController,
                       focusNode: nameFocus,
                       textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) {
-                        FocusScope.of(context).requestFocus(phoneFocus);
-                      },
-
+                      onFieldSubmitted: (_) =>
+                          FocusScope.of(context).requestFocus(phoneFocus),
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(
                           RegExp(r"[a-zA-Z\s\.]"),
                         ),
                       ],
-
                       decoration: _inputDecoration("Name", Icons.person),
-
                       validator: (value) {
                         if (!isSubmitted) return null;
 
                         final name = value?.trim() ?? "";
 
-                        if (name.isEmpty) {
-                          return "Enter name";
-                        }
+                        if (name.isEmpty) return "Enter name";
 
                         if (!RegExp(r"^[a-zA-Z\s\.]+$").hasMatch(name)) {
-                          return "Name can only contain letters and dot";
+                          return "Only letters and dot allowed";
                         }
 
                         return null;
@@ -176,33 +273,22 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                     TextFormField(
                       controller: phoneController,
                       focusNode: phoneFocus,
-                      textInputAction: TextInputAction.next,
                       keyboardType: TextInputType.number,
-                      onFieldSubmitted: (_) {
-                        FocusScope.of(context).requestFocus(emailFocus);
-                      },
+                      textInputAction: TextInputAction.next,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(11),
                       ],
-                      decoration: _inputDecoration("Phone Number", Icons.phone),
-
+                      decoration:
+                          _inputDecoration("Phone Number", Icons.phone),
                       validator: (value) {
                         if (!isSubmitted) return null;
 
-                        final phone = value?.replaceAll(" ", "") ?? "";
+                        final phone = value?.trim() ?? "";
 
-                        if (phone.isEmpty) {
-                          return "Phone number is required";
-                        }
-
-                        if (phone.length != 11) {
-                          return "Must be 11 digits";
-                        }
-
-                        if (!phone.startsWith("09")) {
-                          return "Must start with 09";
-                        }
+                        if (phone.isEmpty) return "Phone required";
+                        if (phone.length != 11) return "Must be 11 digits";
+                        if (!phone.startsWith("09")) return "Must start with 09";
 
                         return null;
                       },
@@ -214,38 +300,26 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                     TextFormField(
                       controller: emailController,
                       focusNode: emailFocus,
-                      textInputAction: TextInputAction.done,
                       keyboardType: TextInputType.emailAddress,
-                      onFieldSubmitted: (_) {
-                        emailFocus.unfocus();
-                      },
+                      textInputAction: TextInputAction.done,
                       onChanged: (value) {
-                        final lower = value.trim().toLowerCase();
-
+                        final lower = value.toLowerCase();
                         if (value != lower) {
                           emailController.value = TextEditingValue(
                             text: lower,
                             selection: TextSelection.collapsed(
-                              offset: lower.length,
-                            ),
+                                offset: lower.length),
                           );
                         }
-
-                        if (isSubmitted) {
-                          formKey.currentState!.validate();
-                        }
                       },
-                      decoration: _inputDecoration("Email Address", Icons.email),
-
+                      decoration:
+                          _inputDecoration("Email Address", Icons.email),
                       validator: (value) {
                         if (!isSubmitted) return null;
 
                         final email = value?.trim().toLowerCase() ?? "";
 
-                        if (email.isEmpty) {
-                          return "Email is required";
-                        }
-
+                        if (email.isEmpty) return "Email required";
                         if (!email.endsWith("@gmail.com")) {
                           return "Must end with @gmail.com";
                         }
@@ -260,7 +334,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
 
             const Spacer(),
 
-            // SAVE BUTTON (UPDATED WITH FIRESTORE)
+            // SAVE BUTTON
             Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: Center(
@@ -269,28 +343,42 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                   height: 43,
                   child: ElevatedButton(
                     onPressed: () async {
-                      setState(() {
-                        isSubmitted = true;
-                      });
+                      setState(() => isSubmitted = true);
 
-                      if (formKey.currentState!.validate()) {
-                        final newContact = EmergencyContact(
-                          name: nameController.text,
-                          phone: phoneController.text,
-                          email: emailController.text.toLowerCase(),
-                        );
+                      if (!formKey.currentState!.validate()) return;
 
-                        try {
-                          await _saveToFirestore(newContact);
+                      final auth =
+                          Provider.of<AuthProvider>(context, listen: false);
+                      final userId = auth.currentUser?.id;
 
-                          if (!context.mounted) return;
-                          Navigator.pop(context, newContact);
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text("Error: $e")),
-                          );
-                        }
+                      if (userId == null) {
+                        _showMessage("User not logged in");
+                        return;
                       }
+
+                      final phone = phoneController.text.trim();
+                      final email =
+                          emailController.text.trim().toLowerCase();
+
+                      final isDuplicate =
+                          await _isDuplicate(userId, phone, email);
+
+                      if (isDuplicate) {
+                        _showMessage(
+                            "Contact already exists (phone or email)");
+                        return;
+                      }
+
+                      final newContact = EmergencyContact(
+                        name: nameController.text.trim(),
+                        phone: phone,
+                        email: email,
+                      );
+
+                      await _saveToFirestore(newContact);
+
+                      if (!context.mounted) return;
+                      Navigator.pop(context, newContact);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF21709D),
@@ -303,7 +391,7 @@ class _AddEmergencyContactPageState extends State<AddEmergencyContactPage> {
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.white,
-                        fontFamily: 'Inter',
+                        fontFamily:'Inter',
                       ),
                     ),
                   ),
