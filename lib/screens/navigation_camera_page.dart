@@ -8,6 +8,9 @@ import 'user_profile.dart';
 import 'drive_route.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../ml/pt_model_detector.dart';
+import '../services/roboflow_detection_service.dart';
+
+enum DetectionBackend { onboard, roboflow }
 
 class NavigationCameraPage extends StatefulWidget {
   final String destination;
@@ -26,22 +29,31 @@ class NavigationCameraPage extends StatefulWidget {
 }
 
 class _NavigationCameraPageState extends State<NavigationCameraPage> {
-  static const String _ptModelAssetPath = 'assets/models/road_hazard_detector.tflite';
+  static const String _ptModelAssetPath =
+      'assets/models/road_hazard_detector.tflite';
 
   /// CAMERA
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
 
   /// DETECTION
-  final PtModelDetector _detector = PtModelDetector(modelAssetPath: _ptModelAssetPath);
+  final PtModelDetector _detector = PtModelDetector(
+    modelAssetPath: _ptModelAssetPath,
+  );
+  final RoboflowDetectionService _roboflowService = RoboflowDetectionService();
   bool _isProcessingFrame = false;
   DateTime _lastInferenceAt = DateTime.fromMillisecondsSinceEpoch(0);
-  static const Duration _inferenceInterval = Duration(milliseconds: 2500);
+  static const Duration _onboardInferenceInterval = Duration(milliseconds: 600);
+  static const Duration _roboflowInferenceInterval = Duration(
+    milliseconds: 1100,
+  );
   static const Duration _detectionHoldDuration = Duration(seconds: 4);
-  final ValueNotifier<DetectionResult?> _latestDetectionNotifier = ValueNotifier<DetectionResult?>(null);
-  final ValueNotifier<int> _inferenceCounterNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<DetectionResult?> _latestDetectionNotifier =
+      ValueNotifier<DetectionResult?>(null);
   String _modelStatus = 'Preparing model...';
   bool _isDetectionEnabled = false;
+  DetectionBackend _activeBackend = DetectionBackend.onboard;
+  Size? _latestOverlayModelSize;
 
   /// MAP & NAVIGATION
   GoogleMapController? mapController;
@@ -51,7 +63,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   Set<Marker> _markers = {};
 
   // smoothed heading
-  double _smoothedHeading =0.0;
+  double _smoothedHeading = 0.0;
   DateTime _lastNavUiUpdateAt = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _navUiUpdateInterval = Duration(milliseconds: 300);
 
@@ -87,17 +99,17 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     });
 
     _initializeNavigationData();
-    _startLocationTracking(); 
+    _startLocationTracking();
     _initializeCamera();
   }
 
   ///Load User Icon
   Future<void> _loadUserMarker() async {
     _userIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size (48, 48)),
-      'assets/user_location.png'
+      const ImageConfiguration(size: Size(48, 48)),
+      'assets/user_location.png',
     );
-    if (mounted) setState ((){});
+    if (mounted) setState(() {});
   }
 
   void _initializeNavigationData() {
@@ -108,10 +120,10 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
           polylineId: const PolylineId('nav_route'),
           points: widget.routePoints!,
           color: const Color(0xFF21709D),
-          width: 8, 
+          width: 8,
           jointType: JointType.round,
           startCap: Cap.roundCap, // Corrected parameter name
-          endCap: Cap.roundCap,   // Corrected parameter name
+          endCap: Cap.roundCap, // Corrected parameter name
         ),
       );
     }
@@ -122,7 +134,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         Marker(
           markerId: const MarkerId('dest_pin'),
           position: widget.destinationPosition!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
           infoWindow: InfoWindow(title: widget.destination),
         ),
       );
@@ -143,21 +157,22 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       double rawHeading = position.heading;
 
       //ignore invalid readings
-      if (rawHeading ==0) {
+      if (rawHeading == 0) {
         rawHeading = _smoothedHeading;
       }
 
       //apply smoothing filter
-      _smoothedHeading = _smoothedHeading == 0
-          ? rawHeading
-          : (_smoothedHeading * 0.8 +  rawHeading * 0.2);
+      _smoothedHeading =
+          _smoothedHeading == 0
+              ? rawHeading
+              : (_smoothedHeading * 0.8 + rawHeading * 0.2);
 
       final now = DateTime.now();
       if (now.difference(_lastNavUiUpdateAt) < _navUiUpdateInterval) {
         return;
       }
       _lastNavUiUpdateAt = now;
-      
+
       if (mounted) {
         if (!_mapFullScreen) {
           _userPosition = current;
@@ -168,15 +183,15 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         //use smoothed heading
         //_updateRouteProgress(current, position.heading);
         _updateRouteProgress(current, _smoothedHeading);
-                
+
         // Perspective Camera Animation to follow movement
         mapController?.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
               target: current,
-              zoom: 18.5, 
-              tilt: 60.0,      
-              bearing: _smoothedHeading, 
+              zoom: 18.5,
+              tilt: 60.0,
+              bearing: _smoothedHeading,
             ),
           ),
         );
@@ -185,7 +200,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   ///New method: trims the polyline so it always starts from your current dot
-  void _updateRouteProgress(LatLng currentPosition, double heading){
+  void _updateRouteProgress(LatLng currentPosition, double heading) {
     if (widget.routePoints == null || widget.routePoints!.isEmpty) return;
 
     //Use the original points passed from the previous screen
@@ -194,7 +209,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     double minDistance = double.infinity;
 
     // find which point in the route array is currently closest to the car
-    for (int i =0; i< fullRoute.length; i++) {
+    for (int i = 0; i < fullRoute.length; i++) {
       double distance = Geolocator.distanceBetween(
         currentPosition.latitude,
         currentPosition.longitude,
@@ -204,9 +219,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       if (distance < minDistance) {
         minDistance = distance;
         closestPointIndex = i;
-      }  
+      }
     }
-    // Create a new path: Start exactly at the user's GPS dot, 
+    // Create a new path: Start exactly at the user's GPS dot,
     // then continue with the rest of the original points.
     //List<LatLng> updatedPath = [currentPosition];
 
@@ -220,7 +235,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       updatedPath = [fullRoute.last];
     }
 
-    setState (() {
+    setState(() {
       _userPosition = currentPosition;
 
       _polylines = {
@@ -236,16 +251,16 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       };
 
       // remove old user marker
-      _markers.removeWhere((m) => m.markerId.value =='user_location');
+      _markers.removeWhere((m) => m.markerId.value == 'user_location');
 
       // Add Custom User Marker
-      _markers.add (
+      _markers.add(
         Marker(
           markerId: const MarkerId('user_location'),
           position: currentPosition,
-          icon: _userIcon?? BitmapDescriptor.defaultMarker,
-          anchor: const Offset (0.5, 0.5),
-          flat:true,
+          icon: _userIcon ?? BitmapDescriptor.defaultMarker,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
           rotation: heading,
         ),
       );
@@ -260,14 +275,21 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         setState(() => _modelStatus = 'No camera');
         return;
       }
-      _cameraController = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
+      _cameraController = CameraController(
+        cameras.first,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
       _initializeControllerFuture = _cameraController!.initialize();
       await _initializeControllerFuture;
       await _detector.initialize();
-      if (_detector.isModelAssetFound) {
-        _modelStatus = 'Model ready (tap Enable Detection)';
+      if (_detector.isModelAssetFound || _roboflowService.isConfigured) {
+        _modelStatus =
+            _activeBackend == DetectionBackend.onboard
+                ? 'On-device ready (tap Enable Detection)'
+                : 'Roboflow ready (tap Enable Detection)';
       } else {
-        _modelStatus = 'Model missing/unsupported';
+        _modelStatus = 'No detector configured';
       }
       if (mounted) setState(() {});
     } catch (e) {
@@ -275,54 +297,191 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     }
   }
 
+  Duration get _activeInferenceInterval =>
+      _activeBackend == DetectionBackend.onboard
+          ? _onboardInferenceInterval
+          : _roboflowInferenceInterval;
+
+  bool get _canUseActiveBackend {
+    if (_activeBackend == DetectionBackend.onboard) {
+      return _detector.isModelAssetFound;
+    }
+    return _roboflowService.isConfigured;
+  }
+
+  Future<void> _switchDetectionBackend() async {
+    setState(() {
+      _activeBackend =
+          _activeBackend == DetectionBackend.onboard
+              ? DetectionBackend.roboflow
+              : DetectionBackend.onboard;
+
+      if (_activeBackend == DetectionBackend.roboflow) {
+        _modelStatus =
+            _roboflowService.isConfigured
+                ? (_isDetectionEnabled
+                    ? 'Detecting hazards (Roboflow API)'
+                    : 'Switched to Roboflow API (tap Enable Detection)')
+                : 'Roboflow not configured';
+      } else {
+        _modelStatus =
+            _detector.isModelAssetFound
+                ? (_isDetectionEnabled
+                    ? 'Detecting hazards (On-device)'
+                    : 'Switched to On-device model (tap Enable Detection)')
+                : 'On-device model unavailable';
+      }
+      _latestDetectionNotifier.value = null;
+    });
+  }
+
+  Future<void> _handleDetectionButtonLongPress() async {
+    await _switchDetectionBackend();
+    if (!_isDetectionEnabled && _canUseActiveBackend) {
+      await _toggleDetection();
+    }
+  }
+
   Future<void> _startImageStream() async {
     final controller = _cameraController;
     if (controller == null || controller.value.isStreamingImages) return;
     await controller.startImageStream((CameraImage image) {
-      if (!mounted || !_isDetectionEnabled || _isProcessingFrame) return;
+      if (!mounted) {
+        debugPrint('[DETECTION] Widget disposed, skipping frame');
+        return;
+      }
+      if (!_isDetectionEnabled) return;
+      if (_isProcessingFrame) {
+        debugPrint(
+          '[DETECTION] Previous frame still processing, dropping this frame',
+        );
+        return;
+      }
       final now = DateTime.now();
-      if (now.difference(_lastInferenceAt) < _inferenceInterval) return;
+      if (now.difference(_lastInferenceAt) < _activeInferenceInterval) return;
       _isProcessingFrame = true;
       _lastInferenceAt = now;
 
-      // Copy only luminance bytes quickly so the camera callback can return fast.
-      final Uint8List yCopy = Uint8List.fromList(image.planes.first.bytes);
+      final Uint8List yCopy = image.planes.first.bytes;
+      final Uint8List uCopy =
+          image.planes.length > 1 ? image.planes[1].bytes : Uint8List(0);
+      final Uint8List vCopy =
+          image.planes.length > 2 ? image.planes[2].bytes : Uint8List(0);
       final int width = image.width;
       final int height = image.height;
+      final int uRowStride =
+          image.planes.length > 1 ? image.planes[1].bytesPerRow : 0;
+      final int vRowStride =
+          image.planes.length > 2 ? image.planes[2].bytesPerRow : 0;
+      final int uvPixelStride =
+          image.planes.length > 1 ? (image.planes[1].bytesPerPixel ?? 2) : 2;
 
-      unawaited(_runDetectionFrame(yCopy, width, height));
+      unawaited(
+        _runDetectionFrame(
+          yCopy,
+          uCopy,
+          vCopy,
+          width,
+          height,
+          uRowStride,
+          vRowStride,
+          uvPixelStride,
+        ),
+      );
     });
   }
 
   Future<void> _runDetectionFrame(
     Uint8List yPlane,
+    Uint8List uPlane,
+    Uint8List vPlane,
     int width,
     int height,
+    int uRowStride,
+    int vRowStride,
+    int uvPixelStride,
   ) async {
     try {
-      final results = await _detector.detectFromLuma(yPlane, width, height);
+      final hasChroma = uPlane.isNotEmpty && vPlane.isNotEmpty;
+      if (!hasChroma) {
+        debugPrint(
+          '[DETECTION] ⚠️ UV planes empty (${uPlane.length} U, ${vPlane.length} V), using luma-only fallback',
+        );
+      }
+
+      final List<DetectionResult> results;
+      if (_activeBackend == DetectionBackend.roboflow &&
+          _roboflowService.isConfigured) {
+        results =
+            hasChroma
+                ? await _roboflowService.detectFromYuv420(
+                  yPlane: yPlane,
+                  uPlane: uPlane,
+                  vPlane: vPlane,
+                  srcWidth: width,
+                  srcHeight: height,
+                  uRowStride: uRowStride,
+                  vRowStride: vRowStride,
+                  uvPixelStride: uvPixelStride,
+                )
+                : const [];
+      } else {
+        results =
+            hasChroma
+                ? await _detector.detectFromYuv420(
+                  yPlane,
+                  uPlane,
+                  vPlane,
+                  width,
+                  height,
+                  uRowStride,
+                  vRowStride,
+                  uvPixelStride,
+                )
+                : await _detector.detectFromLuma(yPlane, width, height);
+      }
+
       if (!mounted) return;
 
       if (results.isEmpty) {
+        debugPrint(
+          '[DETECTION] No detections found (backend: $_activeBackend)',
+        );
         final latest = _latestDetectionNotifier.value;
-        final shouldClear = latest != null &&
-            DateTime.now().difference(latest.detectedAt) > _detectionHoldDuration;
+        final shouldClear =
+            latest != null &&
+            DateTime.now().difference(latest.detectedAt) >
+                _detectionHoldDuration;
         if (shouldClear) {
+          debugPrint(
+            '[DETECTION] Clearing stale detection after ${_detectionHoldDuration.inSeconds}s',
+          );
           _latestDetectionNotifier.value = null;
         }
         return;
       }
 
-      final next = results.first;
+      final rawNext = results.first;
+      final next = rawNext;
+      _latestOverlayModelSize =
+          _activeBackend == DetectionBackend.roboflow
+              ? Size(width.toDouble(), height.toDouble())
+              : Size(
+                _detector.inputWidth.toDouble(),
+                _detector.inputHeight.toDouble(),
+              );
       final prev = _latestDetectionNotifier.value;
       if (prev != null && _shouldSkipDetectionUpdate(prev, next)) {
+        debugPrint('[DETECTION] Filtered duplicate detection: ${next.label}');
         return;
       }
 
+      debugPrint(
+        '[DETECTION] ✅ New detection: ${next.label} (conf: ${next.confidence.toStringAsFixed(3)})',
+      );
       _latestDetectionNotifier.value = next;
     } finally {
       _isProcessingFrame = false;
-      _inferenceCounterNotifier.value = _inferenceCounterNotifier.value + 1;
     }
   }
 
@@ -345,7 +504,15 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Future<void> _toggleDetection() async {
     final controller = _cameraController;
-    if (controller == null || !_detector.isModelAssetFound) {
+    if (controller == null || !_canUseActiveBackend) {
+      if (mounted) {
+        setState(() {
+          _modelStatus =
+              _activeBackend == DetectionBackend.roboflow
+                  ? 'Roboflow not configured'
+                  : 'On-device model unavailable';
+        });
+      }
       return;
     }
 
@@ -357,7 +524,10 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       setState(() {
         _isDetectionEnabled = false;
         _isProcessingFrame = false;
-        _modelStatus = 'Model ready (detection paused)';
+        _modelStatus =
+            _activeBackend == DetectionBackend.roboflow
+                ? 'Roboflow ready (detection paused)'
+                : 'On-device ready (detection paused)';
       });
       return;
     }
@@ -366,8 +536,37 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
     if (!mounted) return;
     setState(() {
       _isDetectionEnabled = true;
-      _modelStatus = 'Detecting hazards';
+      _modelStatus =
+          _activeBackend == DetectionBackend.roboflow
+              ? 'Detecting hazards (Roboflow API)'
+              : 'Detecting hazards (On-device)';
     });
+  }
+
+  DetectionResult _mapDetectionToOverlaySpace(
+    DetectionResult detection,
+    int sourceWidth,
+    int sourceHeight,
+  ) {
+    if (sourceWidth <= 0 || sourceHeight <= 0) {
+      return detection;
+    }
+
+    final scaleX = _detector.inputWidth / sourceWidth;
+    final scaleY = _detector.inputHeight / sourceHeight;
+    final box = Rect.fromLTRB(
+      detection.boundingBox.left * scaleX,
+      detection.boundingBox.top * scaleY,
+      detection.boundingBox.right * scaleX,
+      detection.boundingBox.bottom * scaleY,
+    );
+
+    return DetectionResult(
+      label: detection.label,
+      confidence: detection.confidence,
+      boundingBox: box,
+      detectedAt: detection.detectedAt,
+    );
   }
 
   Future<void> _runDetection(CameraImage image) async {
@@ -383,9 +582,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       _cameraController?.stopImageStream();
     }
     _cameraController?.dispose();
-    _detector.dispose();
+    unawaited(_detector.dispose());
     _latestDetectionNotifier.dispose();
-    _inferenceCounterNotifier.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -397,14 +595,17 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           final size = MediaQuery.of(context).size;
-          final scale = 1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
+          final scale =
+              1 / (_cameraController!.value.aspectRatio * size.aspectRatio);
           return Transform.scale(
             scale: scale,
             child: Center(
               child: Stack(
                 children: [
                   CameraPreview(_cameraController!),
-                  Positioned.fill(child: IgnorePointer(child: _buildDetectionOverlay())),
+                  Positioned.fill(
+                    child: IgnorePointer(child: _buildDetectionOverlay()),
+                  ),
                 ],
               ),
             ),
@@ -418,12 +619,18 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   Widget _buildDetectionOverlay() {
     return ValueListenableBuilder<DetectionResult?>(
       valueListenable: _latestDetectionNotifier,
-      builder: (context, detection, _) => CustomPaint(
-        painter: _DetectionOverlayPainter(
-          detection: detection,
-          modelSize: Size(_detector.inputWidth.toDouble(), _detector.inputHeight.toDouble()),
-        ),
-      ),
+      builder:
+          (context, detection, _) => CustomPaint(
+            painter: _DetectionOverlayPainter(
+              detection: detection,
+              modelSize:
+                  _latestOverlayModelSize ??
+                  Size(
+                    _detector.inputWidth.toDouble(),
+                    _detector.inputHeight.toDouble(),
+                  ),
+            ),
+          ),
     );
   }
 
@@ -437,7 +644,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       tiltGesturesEnabled: true,
       rotateGesturesEnabled: true,
       compassEnabled: true,
-      onCameraMove: (position){},
+      onCameraMove: (position) {},
       polylines: _polylines,
       markers: _markers,
     );
@@ -454,74 +661,88 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
-            _mapFullScreen 
+            _mapFullScreen
                 ? Stack(
-                    children: [_buildGoogleMap(),
+                  children: [
+                    _buildGoogleMap(),
                     // optional: add ui overlays here if needed
-                    ],
-                  )
+                  ],
+                )
                 : _buildCameraPreview(),
-            
+
             /// HEADER OVERLAY
             Positioned(
-              top: 0, left: 0, right: 0,
+              top: 0,
+              left: 0,
+              right: 0,
               child: SizedBox(
                 height: 187,
                 child: ShaderMask(
-                  shaderCallback: (Rect bounds) => const LinearGradient(
-                    begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                    colors: [Colors.white, Colors.transparent],
-                  ).createShader(bounds),
+                  shaderCallback:
+                      (Rect bounds) => const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.white, Colors.transparent],
+                      ).createShader(bounds),
                   blendMode: BlendMode.dstIn,
                   child: Image.asset('assets/header_bg.png', fit: BoxFit.cover),
                 ),
               ),
             ),
-            
+
             /// ML HUD
-            Positioned(top: 64, left: 16, right: 16, child: _buildDetectionStatusCard()),
+            Positioned(
+              top: 64,
+              left: 16,
+              right: 16,
+              child: _buildDetectionStatusCard(),
+            ),
 
             Positioned(
               bottom: bottomPadding + 229,
               right: 16,
               child: _buildDetectionToggleButton(),
             ),
-            
+
             /// FOOTER OVERLAY
             if (!_mapFullScreen) // hide the footer when map is in fullscreen
-            Positioned(
-              bottom: 0, left: 0, right: 0,
-              child: SizedBox(
-                height: 187,
-                child: ShaderMask(
-                  shaderCallback: (Rect bounds) => const LinearGradient(
-                    begin: Alignment.bottomCenter, end: Alignment.topCenter,
-                    colors: [Colors.white, Colors.transparent],
-                  ).createShader(bounds),
-                  blendMode: BlendMode.dstIn,
-                  child: Image.asset('assets/footer.png', fit: BoxFit.cover),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: SizedBox(
+                  height: 187,
+                  child: ShaderMask(
+                    shaderCallback:
+                        (Rect bounds) => const LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Colors.white, Colors.transparent],
+                        ).createShader(bounds),
+                    blendMode: BlendMode.dstIn,
+                    child: Image.asset('assets/footer.png', fit: BoxFit.cover),
+                  ),
                 ),
               ),
-            ),
-            
+
             /// CONTROLS
             if (!_showResults)
               Positioned(
-                left: 17, right: 17, bottom: bottomPadding + 16,
+                left: 17,
+                right: 17,
+                bottom: bottomPadding + 16,
                 child: _buildSearchBar(),
               ),
 
             Positioned(
-              right: 17, bottom: bottomPadding + 79,
-              child: GestureDetector (
+              right: 17,
+              bottom: bottomPadding + 79,
+              child: GestureDetector(
                 onTap: () {
                   if (_mapFullScreen && mapController != null) {
                     mapController!.animateCamera(
                       CameraUpdate.newCameraPosition(
-                        CameraPosition(
-                          target: _userPosition,
-                          zoom: 18.5,
-                        ),
+                        CameraPosition(target: _userPosition, zoom: 18.5),
                       ),
                     );
                   }
@@ -531,17 +752,19 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
             ),
 
             Positioned(
-              right: 17, bottom: bottomPadding + 154,
+              right: 17,
+              bottom: bottomPadding + 154,
               child: GestureDetector(
                 onTap: () {
                   if (_searchController.text.isNotEmpty) {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => DriveRoutePage(
-                          destination: _searchController.text,
-                          currentPosition: _userPosition,
-                        ),
+                        builder:
+                            (_) => DriveRoutePage(
+                              destination: _searchController.text,
+                              currentPosition: _userPosition,
+                            ),
                       ),
                     );
                   }
@@ -554,7 +777,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
-              left: 16, right: 16, bottom: _showResults ? 16 : -500,
+              left: 16,
+              right: 16,
+              bottom: _showResults ? 16 : -500,
               child: Material(
                 color: Colors.transparent,
                 child: Container(
@@ -562,17 +787,29 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   decoration: BoxDecoration(
                     color: const Color(0xFFEEEEEE),
                     borderRadius: BorderRadius.circular(38),
-                    boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 6, offset: Offset(0, 4))],
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x40000000),
+                        blurRadius: 6,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _buildSearchBar(inBanner: true),
                       const SizedBox(height: 20),
-                      ..._getResults().map((item) => GestureDetector(
-                        onTap: () => setState(() { _searchController.text = item; _showResults = false; }),
-                        child: _buildResultItem(item),
-                      )),
+                      ..._getResults().map(
+                        (item) => GestureDetector(
+                          onTap:
+                              () => setState(() {
+                                _searchController.text = item;
+                                _showResults = false;
+                              }),
+                          child: _buildResultItem(item),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -581,7 +818,8 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
             /// DRAGGABLE PIP WINDOW
             Positioned(
-              top: _pipPosition.dy, left: _pipPosition.dx,
+              top: _pipPosition.dy,
+              left: _pipPosition.dx,
               child: GestureDetector(
                 onTap: () => setState(() => _mapFullScreen = !_mapFullScreen),
                 onPanUpdate: (details) {
@@ -594,16 +832,20 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                   });
                 },
                 child: Container(
-                  width: 150, height: 200,
+                  width: 150,
+                  height: 200,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 6),
+                    ],
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _mapFullScreen
-                      ? _buildCameraPreview()
-                      : _buildMapPipPlaceholder(),
+                  child:
+                      _mapFullScreen
+                          ? _buildCameraPreview()
+                          : _buildMapPipPlaceholder(),
                 ),
               ),
             ),
@@ -615,23 +857,59 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Widget _buildSearchBar({bool inBanner = false}) {
     return Container(
-      height: 50, padding: const EdgeInsets.symmetric(horizontal: 18),
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(38),
-        boxShadow: inBanner ? null : const [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 4))],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(38),
+        boxShadow:
+            inBanner
+                ? null
+                : const [
+                  BoxShadow(
+                    color: Color(0x40000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 4),
+                  ),
+                ],
       ),
       child: Row(
         children: [
           Image.asset('assets/maps-pin.png', width: 28, height: 28),
           const SizedBox(width: 10),
-          Expanded(child: TextField(controller: _searchController, decoration: const InputDecoration(hintText: 'Search here', border: InputBorder.none))),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                hintText: 'Search here',
+                border: InputBorder.none,
+              ),
+            ),
+          ),
           if (!inBanner)
             GestureDetector(
               onTap: () async {
-                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const UserProfile()));
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const UserProfile()),
+                );
                 if (result is File) setState(() => _profileImage = result);
               },
-              child: ClipOval(child: _profileImage != null ? Image.file(_profileImage!, width: 32, height: 32, fit: BoxFit.cover) : Image.asset('assets/profile.png', width: 32, height: 32)),
+              child: ClipOval(
+                child:
+                    _profileImage != null
+                        ? Image.file(
+                          _profileImage!,
+                          width: 32,
+                          height: 32,
+                          fit: BoxFit.cover,
+                        )
+                        : Image.asset(
+                          'assets/profile.png',
+                          width: 32,
+                          height: 32,
+                        ),
+              ),
             ),
         ],
       ),
@@ -641,7 +919,11 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   List<String> _getResults() {
     final query = _searchController.text.toLowerCase().trim();
     if (query.isEmpty) return [];
-    return ['STAR Tollway Batangas', 'STAR Tollway (AutoSweep)', 'STAR Tollway Start'].where((item) => item.toLowerCase().contains(query)).toList();
+    return [
+      'STAR Tollway Batangas',
+      'STAR Tollway (AutoSweep)',
+      'STAR Tollway Start',
+    ].where((item) => item.toLowerCase().contains(query)).toList();
   }
 
   Widget _buildResultItem(String text) {
@@ -659,8 +941,19 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   Widget _circleButton(String asset, double size) {
     return Container(
-      width: 55, height: 55,
-      decoration: const BoxDecoration(color: Color(0xFF21709D), shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 3))]),
+      width: 55,
+      height: 55,
+      decoration: const BoxDecoration(
+        color: Color(0xFF21709D),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 4,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
       child: Center(child: Image.asset(asset, width: size, height: size)),
     );
   }
@@ -690,43 +983,67 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   }
 
   Widget _buildDetectionStatusCard() {
-    return ValueListenableBuilder<int>(
-      valueListenable: _inferenceCounterNotifier,
-      builder: (context, inferenceCount, _) => ValueListenableBuilder<DetectionResult?>(
-        valueListenable: _latestDetectionNotifier,
-        builder: (context, detection, _) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(color: const Color(0xBF000000), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white24)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_modelStatus, style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('Inference frames: $inferenceCount', style: const TextStyle(fontFamily: 'Inter', color: Colors.white70, fontSize: 11)),
-              if (detection != null) ...[
-                const SizedBox(height: 6),
-                Text('Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontFamily: 'Inter', color: Colors.white, fontSize: 12)),
+    return ValueListenableBuilder<DetectionResult?>(
+      valueListenable: _latestDetectionNotifier,
+      builder:
+          (context, detection, _) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xBF000000),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _modelStatus,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (detection != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Detected: ${detection.label} (${(detection.confidence * 100).toStringAsFixed(1)}%)',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
   Widget _buildDetectionToggleButton() {
     final isEnabled = _isDetectionEnabled;
-    final canUseModel = _detector.isModelAssetFound;
+    final canUseModel = _canUseActiveBackend;
+    final isRoboflow = _activeBackend == DetectionBackend.roboflow;
 
     return Tooltip(
-      message: canUseModel
-          ? (isEnabled ? 'Pause Detection' : 'Enable Detection')
-          : 'Model Unavailable',
+      message:
+          canUseModel
+              ? (isEnabled
+                  ? (isRoboflow
+                      ? 'Pause Roboflow Detection'
+                      : 'Pause On-device Detection')
+                  : (isRoboflow
+                      ? 'Enable Roboflow Detection (hold to switch backend)'
+                      : 'Enable On-device Detection (hold to switch backend)'))
+              : 'Model Unavailable',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: canUseModel ? _toggleDetection : null,
+          onLongPress: _handleDetectionButtonLongPress,
           customBorder: const CircleBorder(),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
@@ -738,11 +1055,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: canUseModel
-                    ? (isEnabled
-                        ? const [Color(0xFFB71C1C), Color(0xFF7F1111)]
-                        : const [Color(0xFF2D86B8), Color(0xFF1A5C80)])
-                    : const [Color(0xFF6E6E6E), Color(0xFF4F4F4F)],
+                colors:
+                    canUseModel
+                        ? (isEnabled
+                            ? const [Color(0xFFB71C1C), Color(0xFF7F1111)]
+                            : const [Color(0xFF2D86B8), Color(0xFF1A5C80)])
+                        : const [Color(0xFF6E6E6E), Color(0xFF4F4F4F)],
               ),
               boxShadow: const [
                 BoxShadow(
@@ -756,7 +1074,9 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
               children: [
                 Center(
                   child: Icon(
-                    isEnabled ? Icons.pause : Icons.play_arrow,
+                    isEnabled
+                        ? Icons.pause
+                        : (isRoboflow ? Icons.cloud : Icons.play_arrow),
                     color: Colors.white,
                     size: 28,
                   ),
@@ -769,11 +1089,12 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
                     height: 7,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: canUseModel
-                          ? (isEnabled
-                              ? const Color(0xFF8BFFB2)
-                              : const Color(0xFFFFE08A))
-                          : const Color(0xFFFFB3B3),
+                      color:
+                          canUseModel
+                              ? (isEnabled
+                                  ? const Color(0xFF8BFFB2)
+                                  : const Color(0xFFFFE08A))
+                              : const Color(0xFFFFB3B3),
                     ),
                   ),
                 ),
@@ -808,20 +1129,23 @@ class _DetectionOverlayPainter extends CustomPainter {
       result.boundingBox.bottom * scaleY,
     );
 
-    final strokePaint = Paint()
-      ..color = const Color(0xFFFFD54F)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+    final strokePaint =
+        Paint()
+          ..color = const Color(0xFFFFD54F)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4;
 
-    final fillPaint = Paint()
-      ..color = const Color(0x33FFD54F)
-      ..style = PaintingStyle.fill;
+    final fillPaint =
+        Paint()
+          ..color = const Color(0x1AFFD54F)
+          ..style = PaintingStyle.fill;
 
-    final rrect = RRect.fromRectAndRadius(box, const Radius.circular(8));
+    final rrect = RRect.fromRectAndRadius(box, const Radius.circular(2));
     canvas.drawRRect(rrect, fillPaint);
     canvas.drawRRect(rrect, strokePaint);
 
-    final label = '${result.label} ${(result.confidence * 100).toStringAsFixed(1)}%';
+    final label =
+        '${result.label} ${(result.confidence * 100).toStringAsFixed(1)}%';
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
@@ -838,9 +1162,17 @@ class _DetectionOverlayPainter extends CustomPainter {
 
     final labelWidth = textPainter.width + 12;
     final labelHeight = textPainter.height + 8;
-    final labelTop = box.top - labelHeight - 6 >= 0 ? box.top - labelHeight - 6 : box.top + 6;
+    final labelTop =
+        box.top - labelHeight - 6 >= 0
+            ? box.top - labelHeight - 6
+            : box.top + 6;
     final labelLeft = box.left.clamp(6.0, size.width - labelWidth - 6);
-    final labelRect = Rect.fromLTWH(labelLeft, labelTop, labelWidth, labelHeight);
+    final labelRect = Rect.fromLTWH(
+      labelLeft,
+      labelTop,
+      labelWidth,
+      labelHeight,
+    );
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(labelRect, const Radius.circular(6)),
@@ -851,6 +1183,7 @@ class _DetectionOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DetectionOverlayPainter oldDelegate) {
-    return oldDelegate.detection != detection || oldDelegate.modelSize != modelSize;
+    return oldDelegate.detection != detection ||
+        oldDelegate.modelSize != modelSize;
   }
 }

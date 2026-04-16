@@ -10,22 +10,42 @@ import 'dart:typed_data';
 class _PreprocessRequest {
   const _PreprocessRequest({
     required this.yPlane,
+    this.uPlane,
+    this.vPlane,
     required this.srcWidth,
     required this.srcHeight,
     required this.inputWidth,
     required this.inputHeight,
     required this.inputChannels,
+    this.uRowStride,
+    this.vRowStride,
+    this.uvPixelStride,
+    this.quantizeInput = false,
+    this.inputScale = 1.0,
+    this.inputZeroPoint = 0,
+    this.inputMinValue = 0,
+    this.inputMaxValue = 255,
   });
 
   final Uint8List yPlane;
+  final Uint8List? uPlane;
+  final Uint8List? vPlane;
   final int srcWidth;
   final int srcHeight;
   final int inputWidth;
   final int inputHeight;
   final int inputChannels;
+  final int? uRowStride;
+  final int? vRowStride;
+  final int? uvPixelStride;
+  final bool quantizeInput;
+  final double inputScale;
+  final int inputZeroPoint;
+  final int inputMinValue;
+  final int inputMaxValue;
 }
 
-List<List<List<List<double>>>> _buildInputTensorInIsolate(_PreprocessRequest request) {
+dynamic _buildInputTensorInIsolate(_PreprocessRequest request) {
   final input = List.generate(
     1,
     (_) => List.generate(
@@ -43,27 +63,99 @@ List<List<List<List<double>>>> _buildInputTensorInIsolate(_PreprocessRequest req
     for (int x = 0; x < request.inputWidth; x++) {
       final srcX =
           (x * request.srcWidth / request.inputWidth).floor().clamp(0, request.srcWidth - 1);
-      final luminance = request.yPlane[srcY * request.srcWidth + srcX] / 255.0;
+      final yValue = request.yPlane[srcY * request.srcWidth + srcX].toDouble();
 
-      if (request.inputChannels == 1) {
-        input[0][y][x][0] = luminance;
+      final hasChroma = request.uPlane != null &&
+          request.vPlane != null &&
+          request.uRowStride != null &&
+          request.vRowStride != null &&
+          request.uvPixelStride != null;
+
+      if (!hasChroma) {
+        final luminance = yValue / 255.0;
+        if (request.inputChannels == 1) {
+          input[0][y][x][0] = luminance;
+        } else {
+          for (int c = 0; c < request.inputChannels; c++) {
+            input[0][y][x][c] = luminance;
+          }
+        }
       } else {
-        for (int c = 0; c < request.inputChannels; c++) {
-          input[0][y][x][c] = luminance;
+        final uvX = srcX ~/ 2;
+        final uvY = srcY ~/ 2;
+        final uIndex = uvY * request.uRowStride! + uvX * request.uvPixelStride!;
+        final vIndex = uvY * request.vRowStride! + uvX * request.uvPixelStride!;
+
+        final u = request.uPlane![uIndex].toDouble() - 128.0;
+        final v = request.vPlane![vIndex].toDouble() - 128.0;
+
+        final r = (yValue + 1.402 * v).clamp(0.0, 255.0) / 255.0;
+        final g = (yValue - 0.344136 * u - 0.714136 * v).clamp(0.0, 255.0) / 255.0;
+        final b = (yValue + 1.772 * u).clamp(0.0, 255.0) / 255.0;
+
+        if (request.inputChannels == 1) {
+          input[0][y][x][0] = (0.299 * r + 0.587 * g + 0.114 * b);
+        } else if (request.inputChannels >= 3) {
+          input[0][y][x][0] = r;
+          input[0][y][x][1] = g;
+          input[0][y][x][2] = b;
+          for (int c = 3; c < request.inputChannels; c++) {
+            input[0][y][x][c] = r;
+          }
+        } else {
+          input[0][y][x][0] = r;
         }
       }
     }
   }
 
-  return input;
+  if (!request.quantizeInput || request.inputScale <= 0) {
+    return input;
+  }
+
+  return _quantizeInputTensor(
+    input,
+    request.inputScale,
+    request.inputZeroPoint,
+    request.inputMinValue,
+    request.inputMaxValue,
+  );
 }
 
-dynamic _allocateOutputBufferForWorker(List<int> shape, int depth) {
+dynamic _quantizeInputTensor(
+  dynamic buffer,
+  double scale,
+  int zeroPoint,
+  int minValue,
+  int maxValue,
+) {
+  if (buffer is List) {
+    return buffer
+        .map((child) => _quantizeInputTensor(child, scale, zeroPoint, minValue, maxValue))
+        .toList();
+  }
+
+  if (buffer is num) {
+    final quantized = (buffer.toDouble() / scale + zeroPoint).round();
+    return quantized.clamp(minValue, maxValue);
+  }
+
+  return buffer;
+}
+
+dynamic _allocateOutputBufferForWorker(
+  List<int> shape,
+  int depth, {
+  required bool useIntBuffer,
+}) {
   final dim = shape[depth];
   if (depth == shape.length - 1) {
-    return List<double>.filled(dim, 0.0);
+    return useIntBuffer ? List<int>.filled(dim, 0) : List<double>.filled(dim, 0.0);
   }
-  return List.generate(dim, (_) => _allocateOutputBufferForWorker(shape, depth + 1));
+  return List.generate(
+    dim,
+    (_) => _allocateOutputBufferForWorker(shape, depth + 1, useIntBuffer: useIntBuffer),
+  );
 }
 
 void _resetOutputBufferForWorker(dynamic buffer) {
@@ -74,11 +166,32 @@ void _resetOutputBufferForWorker(dynamic buffer) {
     return;
   }
 
+  if (buffer is List<int>) {
+    for (int i = 0; i < buffer.length; i++) {
+      buffer[i] = 0;
+    }
+    return;
+  }
+
   if (buffer is List) {
     for (final child in buffer) {
       _resetOutputBufferForWorker(child);
     }
   }
+}
+
+dynamic _dequantizeOutputBuffer(dynamic buffer, double scale, int zeroPoint) {
+  if (buffer is List) {
+    return buffer
+        .map((child) => _dequantizeOutputBuffer(child, scale, zeroPoint))
+        .toList();
+  }
+
+  if (buffer is num) {
+    return (buffer.toDouble() - zeroPoint) * scale;
+  }
+
+  return 0.0;
 }
 
 Rect _buildBoundingBoxForWorker(
@@ -113,12 +226,19 @@ bool _isCandidateBoxValidForWorker(Rect box, int inputWidth, int inputHeight) {
 
   final width = box.width;
   final height = box.height;
-  if (width < 6 || height < 6) {
+  if (width < 2 || height < 2) {
     return false;
   }
 
-  final minArea = inputWidth * inputHeight * 0.0001;
+  final minArea = inputWidth * inputHeight * 0.00001;
   return width * height >= minArea;
+}
+
+String _labelForClassIndex(int index, List<String> classLabels) {
+  if (index >= 0 && index < classLabels.length) {
+    return classLabels[index];
+  }
+  return 'class_$index';
 }
 
 Map<String, dynamic>? _extractBestDetectionForWorker(
@@ -127,6 +247,7 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
   int inputWidth,
   int inputHeight,
   double minDetectionConfidence,
+  List<String> classLabels,
 ) {
   if (outputShape.length == 2 && outputShape[0] == 1) {
     final scores = (output as List).first as List;
@@ -149,7 +270,7 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
     }
 
     return {
-      'label': bestIndex == 0 ? 'road_hazard' : 'class_$bestIndex',
+      'label': _labelForClassIndex(bestIndex, classLabels),
       'confidence': bestScore,
       'left': 0.0,
       'top': 0.0,
@@ -161,6 +282,7 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
   if (outputShape.length == 3 && outputShape[0] == 1) {
     final shapeA = outputShape[1];
     final shapeB = outputShape[2];
+    final classCount = classLabels.length;
 
     final classAxisLikelyA = shapeA <= 16;
     if (classAxisLikelyA) {
@@ -179,12 +301,22 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
         final width = ((channelMajor[2] as List)[b] as num).toDouble();
         final height = ((channelMajor[3] as List)[b] as num).toDouble();
         final candidateBox = _buildBoundingBoxForWorker(x, y, width, height, inputWidth, inputHeight);
-        final objectness = channels > 4 ? ((channelMajor[4] as List)[b] as num).toDouble() : 1.0;
-
-        double classScore = objectness;
+        if (!_isCandidateBoxValidForWorker(candidateBox, inputWidth, inputHeight)) {
+          continue;
+        }
+        double classScore = 0.0;
         int classIndex = 0;
 
-        if (channels > 5) {
+        if (channels == 4 + classCount) {
+          for (int c = 0; c < classCount; c++) {
+            final value = ((channelMajor[c + 4] as List)[b] as num).toDouble();
+            if (value > classScore) {
+              classScore = value;
+              classIndex = c;
+            }
+          }
+        } else if (channels == 5 + classCount) {
+          final objectness = ((channelMajor[4] as List)[b] as num).toDouble();
           double maxClass = 0.0;
           int maxIndex = 0;
           for (int c = 5; c < channels; c++) {
@@ -196,14 +328,45 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
           }
           classScore = objectness * maxClass;
           classIndex = maxIndex;
+        } else if (channels > 4) {
+          final objectness = ((channelMajor[4] as List)[b] as num).toDouble();
+          double maxClassFrom5 = 0.0;
+          int maxIndexFrom5 = 0;
+          for (int c = 5; c < channels; c++) {
+            final value = ((channelMajor[c] as List)[b] as num).toDouble();
+            if (value > maxClassFrom5) {
+              maxClassFrom5 = value;
+              maxIndexFrom5 = c - 5;
+            }
+          }
+
+          double maxClassFrom4 = 0.0;
+          int maxIndexFrom4 = 0;
+          for (int c = 4; c < channels; c++) {
+            final value = ((channelMajor[c] as List)[b] as num).toDouble();
+            if (value > maxClassFrom4) {
+              maxClassFrom4 = value;
+              maxIndexFrom4 = c - 4;
+            }
+          }
+
+          final scoreWithObjectness = objectness * maxClassFrom5;
+          if (maxClassFrom4 > scoreWithObjectness) {
+            classScore = maxClassFrom4;
+            classIndex = maxIndexFrom4;
+          } else {
+            classScore = scoreWithObjectness;
+            classIndex = maxIndexFrom5;
+          }
+        } else {
+          classIndex = 0;
+          classScore = ((channelMajor[0] as List)[b] as num).toDouble();
         }
 
         if (classScore > bestConfidence) {
           bestConfidence = classScore;
           bestClass = classIndex;
-          bestBox = _isCandidateBoxValidForWorker(candidateBox, inputWidth, inputHeight)
-              ? candidateBox
-              : Rect.zero;
+          bestBox = candidateBox;
         }
       }
 
@@ -212,7 +375,7 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
       }
 
       return {
-        'label': bestClass == 0 ? 'road_hazard' : 'class_$bestClass',
+        'label': _labelForClassIndex(bestClass, classLabels),
         'confidence': bestConfidence,
         'left': bestBox.left,
         'top': bestBox.top,
@@ -237,12 +400,22 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
       final width = (row[2] as num).toDouble();
       final height = (row[3] as num).toDouble();
       final candidateBox = _buildBoundingBoxForWorker(x, y, width, height, inputWidth, inputHeight);
-      final objectness = channels > 4 ? (row[4] as num).toDouble() : 1.0;
-
-      double classScore = objectness;
+      if (!_isCandidateBoxValidForWorker(candidateBox, inputWidth, inputHeight)) {
+        continue;
+      }
+      double classScore = 0.0;
       int classIndex = 0;
 
-      if (channels > 5) {
+      if (channels == 4 + classCount) {
+        for (int c = 0; c < classCount; c++) {
+          final value = (row[c + 4] as num).toDouble();
+          if (value > classScore) {
+            classScore = value;
+            classIndex = c;
+          }
+        }
+      } else if (channels == 5 + classCount) {
+        final objectness = (row[4] as num).toDouble();
         double maxClass = 0.0;
         int maxIndex = 0;
         for (int c = 5; c < channels; c++) {
@@ -254,14 +427,45 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
         }
         classScore = objectness * maxClass;
         classIndex = maxIndex;
+      } else if (channels > 4) {
+        final objectness = (row[4] as num).toDouble();
+        double maxClassFrom5 = 0.0;
+        int maxIndexFrom5 = 0;
+        for (int c = 5; c < channels; c++) {
+          final value = (row[c] as num).toDouble();
+          if (value > maxClassFrom5) {
+            maxClassFrom5 = value;
+            maxIndexFrom5 = c - 5;
+          }
+        }
+
+        double maxClassFrom4 = 0.0;
+        int maxIndexFrom4 = 0;
+        for (int c = 4; c < channels; c++) {
+          final value = (row[c] as num).toDouble();
+          if (value > maxClassFrom4) {
+            maxClassFrom4 = value;
+            maxIndexFrom4 = c - 4;
+          }
+        }
+
+        final scoreWithObjectness = objectness * maxClassFrom5;
+        if (maxClassFrom4 > scoreWithObjectness) {
+          classScore = maxClassFrom4;
+          classIndex = maxIndexFrom4;
+        } else {
+          classScore = scoreWithObjectness;
+          classIndex = maxIndexFrom5;
+        }
+      } else {
+        classIndex = 0;
+        classScore = (row[0] as num).toDouble();
       }
 
       if (classScore > bestConfidence) {
         bestConfidence = classScore;
         bestClass = classIndex;
-        bestBox = _isCandidateBoxValidForWorker(candidateBox, inputWidth, inputHeight)
-            ? candidateBox
-            : Rect.zero;
+        bestBox = candidateBox;
       }
     }
 
@@ -270,7 +474,7 @@ Map<String, dynamic>? _extractBestDetectionForWorker(
     }
 
     return {
-      'label': bestClass == 0 ? 'road_hazard' : 'class_$bestClass',
+      'label': _labelForClassIndex(bestClass, classLabels),
       'confidence': bestConfidence,
       'left': bestBox.left,
       'top': bestBox.top,
@@ -289,13 +493,43 @@ void _inferenceWorkerMain(Map<String, dynamic> initMessage) {
   final inputHeight = initMessage['inputHeight'] as int;
   final inputChannels = initMessage['inputChannels'] as int;
   final minDetectionConfidence = (initMessage['minDetectionConfidence'] as num).toDouble();
+  final classLabels = (initMessage['classLabels'] as List).cast<String>();
 
   final commandPort = ReceivePort();
   mainSendPort.send(commandPort.sendPort);
 
   final interpreter = Interpreter.fromAddress(interpreterAddress);
+  final inputTensor = interpreter.getInputTensor(0);
+  final outputTensor = interpreter.getOutputTensor(0);
+  final inputType = inputTensor.type.toString().toLowerCase();
+  final outputType = outputTensor.type.toString().toLowerCase();
+
+  double inputScale = 1.0;
+  int inputZeroPoint = 0;
+  try {
+    final params = (inputTensor as dynamic).params;
+    inputScale = (params.scale as num?)?.toDouble() ?? inputScale;
+    inputZeroPoint = (params.zeroPoint as num?)?.toInt() ?? inputZeroPoint;
+  } catch (_) {}
+
+  double outputScale = 1.0;
+  int outputZeroPoint = 0;
+  try {
+    final params = (outputTensor as dynamic).params;
+    outputScale = (params.scale as num?)?.toDouble() ?? outputScale;
+    outputZeroPoint = (params.zeroPoint as num?)?.toInt() ?? outputZeroPoint;
+  } catch (_) {}
+
+  final inputIsQuantized = !inputType.contains('float');
+  final inputIsSigned = inputType.contains('int8') && !inputType.contains('uint8');
+  final outputIsQuantized = !outputType.contains('float') && outputScale > 0;
+
   final outputShape = interpreter.getOutputTensor(0).shape;
-  final outputBuffer = _allocateOutputBufferForWorker(outputShape, 0);
+  final outputBuffer = _allocateOutputBufferForWorker(
+    outputShape,
+    0,
+    useIntBuffer: outputIsQuantized,
+  );
 
   commandPort.listen((dynamic message) {
     if (message is! Map) {
@@ -315,30 +549,57 @@ void _inferenceWorkerMain(Map<String, dynamic> initMessage) {
     }
 
     try {
-      final frameData = (message['frame'] as TransferableTypedData).materialize().asUint8List();
+      final frameY = (message['frameY'] as TransferableTypedData).materialize().asUint8List();
       final srcWidth = message['srcWidth'] as int;
       final srcHeight = message['srcHeight'] as int;
 
+      final frameUData = message['frameU'];
+      final frameVData = message['frameV'];
+      final frameU = frameUData is TransferableTypedData
+          ? frameUData.materialize().asUint8List()
+          : null;
+      final frameV = frameVData is TransferableTypedData
+          ? frameVData.materialize().asUint8List()
+          : null;
+      final uRowStride = message['uRowStride'] as int?;
+      final vRowStride = message['vRowStride'] as int?;
+      final uvPixelStride = message['uvPixelStride'] as int?;
+
       final input = _buildInputTensorInIsolate(
         _PreprocessRequest(
-          yPlane: frameData,
+          yPlane: frameY,
+          uPlane: frameU,
+          vPlane: frameV,
           srcWidth: srcWidth,
           srcHeight: srcHeight,
           inputWidth: inputWidth,
           inputHeight: inputHeight,
           inputChannels: inputChannels,
+          uRowStride: uRowStride,
+          vRowStride: vRowStride,
+          uvPixelStride: uvPixelStride,
+          quantizeInput: inputIsQuantized && inputScale > 0,
+          inputScale: inputScale,
+          inputZeroPoint: inputZeroPoint,
+          inputMinValue: inputIsSigned ? -128 : 0,
+          inputMaxValue: inputIsSigned ? 127 : 255,
         ),
       );
 
       _resetOutputBufferForWorker(outputBuffer);
       interpreter.run(input, outputBuffer);
 
+      final parsedOutput = outputIsQuantized
+          ? _dequantizeOutputBuffer(outputBuffer, outputScale, outputZeroPoint)
+          : outputBuffer;
+
       final result = _extractBestDetectionForWorker(
-        outputBuffer,
+        parsedOutput,
         outputShape,
         inputWidth,
         inputHeight,
         minDetectionConfidence,
+        classLabels,
       );
       mainSendPort.send({'id': id, 'result': result});
     } catch (e) {
@@ -365,6 +626,14 @@ class PtModelDetector {
   PtModelDetector({required this.modelAssetPath});
 
   static const double _minDetectionConfidence = 0.10;
+  static const List<String> _classLabels = <String>[
+    '0_Longitudinal_Crack',
+    '1_Transverse_Crack',
+    '2_Alligator_Crack',
+    '3_Pothole',
+    '4_Uneven_Terrain',
+    '5_Debris',
+  ];
 
   final String modelAssetPath;
 
@@ -419,6 +688,12 @@ class PtModelDetector {
       }
 
       _outputShape = _interpreter!.getOutputTensor(0).shape;
+
+      final inputTensor = _interpreter!.getInputTensor(0);
+      final outputTensor = _interpreter!.getOutputTensor(0);
+      debugPrint(
+        'TFLite tensors: input=${inputTensor.shape} ${inputTensor.type}, output=${outputTensor.shape} ${outputTensor.type}',
+      );
 
       await _startInferenceWorker();
 
@@ -485,6 +760,7 @@ class PtModelDetector {
         'inputHeight': _inputHeight,
         'inputChannels': _inputChannels,
         'minDetectionConfidence': _minDetectionConfidence,
+        'classLabels': _classLabels,
       },
     );
 
@@ -495,14 +771,23 @@ class PtModelDetector {
     return detectFromLuma(image.planes.first.bytes, image.width, image.height);
   }
 
-  Future<List<DetectionResult>> detectFromLuma(
-    Uint8List yPlane,
-    int srcWidth,
-    int srcHeight,
-  ) async {
+  Future<Map<String, dynamic>?> _sendDetectionRequest(Map<String, dynamic> message) async {
     final sendPort = _inferenceSendPort;
-    if (!_isInitialized || !_isModelAssetFound || sendPort == null || _isRunningInference) {
-      return const [];
+    if (!_isInitialized) {
+      debugPrint('[PT_DETECTOR] ⚠️ Detector not initialized yet');
+      return null;
+    }
+    if (!_isModelAssetFound) {
+      debugPrint('[PT_DETECTOR] ❌ Model asset not found');
+      return null;
+    }
+    if (sendPort == null) {
+      debugPrint('[PT_DETECTOR] ❌ Inference worker not ready (sendPort null)');
+      return null;
+    }
+    if (_isRunningInference) {
+      debugPrint('[PT_DETECTOR] ⏳ Previous frame still processing, skipping frame');
+      return null;
     }
 
     _isRunningInference = true;
@@ -512,48 +797,87 @@ class PtModelDetector {
       final completer = Completer<Map<String, dynamic>?>();
       _pendingRequests[requestId] = completer;
 
-      sendPort.send({
-        'id': requestId,
-        'type': 'detect',
-        'frame': TransferableTypedData.fromList([yPlane]),
-        'srcWidth': srcWidth,
-        'srcHeight': srcHeight,
-      });
+      sendPort.send({'id': requestId, 'type': 'detect', ...message});
 
       final payload = await completer.future;
       _hasLoggedInferenceError = false;
-
-      if (payload == null) {
-        return const [];
-      }
-
-      final confidence = (payload['confidence'] as num?)?.toDouble() ?? 0.0;
-      if (confidence < _minDetectionConfidence) {
-        return const [];
-      }
-
-      final left = (payload['left'] as num?)?.toDouble() ?? 0.0;
-      final top = (payload['top'] as num?)?.toDouble() ?? 0.0;
-      final right = (payload['right'] as num?)?.toDouble() ?? 0.0;
-      final bottom = (payload['bottom'] as num?)?.toDouble() ?? 0.0;
-
-      return [
-        DetectionResult(
-          label: (payload['label'] as String?) ?? 'unknown',
-          confidence: confidence,
-          boundingBox: Rect.fromLTRB(left, top, right, bottom),
-          detectedAt: DateTime.now(),
-        ),
-      ];
+      return payload;
     } catch (e) {
       if (!_hasLoggedInferenceError) {
         debugPrint('Inference error: $e');
         _hasLoggedInferenceError = true;
       }
-      return const [];
+      return null;
     } finally {
       _isRunningInference = false;
     }
+  }
+
+  Future<List<DetectionResult>> detectFromYuv420(
+    Uint8List yPlane,
+    Uint8List uPlane,
+    Uint8List vPlane,
+    int srcWidth,
+    int srcHeight,
+    int uRowStride,
+    int vRowStride,
+    int uvPixelStride,
+  ) async {
+    final payload = await _sendDetectionRequest({
+      'frameY': TransferableTypedData.fromList([yPlane]),
+      'frameU': TransferableTypedData.fromList([uPlane]),
+      'frameV': TransferableTypedData.fromList([vPlane]),
+      'srcWidth': srcWidth,
+      'srcHeight': srcHeight,
+      'uRowStride': uRowStride,
+      'vRowStride': vRowStride,
+      'uvPixelStride': uvPixelStride,
+    });
+
+    if (payload == null) {
+      return const [];
+    }
+
+    return _payloadToDetectionList(payload);
+  }
+
+  Future<List<DetectionResult>> detectFromLuma(
+    Uint8List yPlane,
+    int srcWidth,
+    int srcHeight,
+  ) async {
+    final payload = await _sendDetectionRequest({
+      'frameY': TransferableTypedData.fromList([yPlane]),
+      'srcWidth': srcWidth,
+      'srcHeight': srcHeight,
+    });
+
+    if (payload == null) {
+      return const [];
+    }
+
+    return _payloadToDetectionList(payload);
+  }
+
+  List<DetectionResult> _payloadToDetectionList(Map<String, dynamic> payload) {
+    final confidence = (payload['confidence'] as num?)?.toDouble() ?? 0.0;
+    if (confidence < _minDetectionConfidence) {
+      return const [];
+    }
+
+    final left = (payload['left'] as num?)?.toDouble() ?? 0.0;
+    final top = (payload['top'] as num?)?.toDouble() ?? 0.0;
+    final right = (payload['right'] as num?)?.toDouble() ?? 0.0;
+    final bottom = (payload['bottom'] as num?)?.toDouble() ?? 0.0;
+
+    return [
+      DetectionResult(
+        label: (payload['label'] as String?) ?? 'unknown',
+        confidence: confidence,
+        boundingBox: Rect.fromLTRB(left, top, right, bottom),
+        detectedAt: DateTime.now(),
+      ),
+    ];
   }
 
   Future<void> dispose() async {

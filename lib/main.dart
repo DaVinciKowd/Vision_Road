@@ -1,6 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'screens/splash_screen.dart';
 import 'providers/auth_provider.dart';
@@ -10,11 +9,6 @@ import 'services/supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await dotenv.load(fileName: ".env");
-  } catch (_) {
-    // .env missing or not bundled (e.g. first clone); env vars will be null
-  }
   await Firebase.initializeApp();
   await SupabaseService.initialize();
   runApp(const VisionRoadApp());
