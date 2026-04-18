@@ -9,6 +9,7 @@ import 'drive_route.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../ml/pt_model_detector.dart';
 import '../services/roboflow_detection_service.dart';
+import '../services/collision_detection_service.dart';
 
 enum DetectionBackend { onboard, roboflow }
 
@@ -81,11 +82,48 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
   bool _showResults = false;
   final List<String> _keywords = ['star', 'tollway', 'batangas', 'autosweep'];
 
+  final CollisionDetectionService _collisionService = CollisionDetectionService();
+  
+  bool _isCollisionDialogShowing = false;
+
   @override
   void initState() {
     super.initState();
     _loadUserMarker();
     _searchController.text = widget.destination;
+
+    /*_collisionService.startListening((){
+      print("Collision callback triggered");
+    });*/
+
+    _collisionService.startListening(() {
+      if (!mounted || _isCollisionDialogShowing) return;
+
+      _isCollisionDialogShowing = true;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Possible Collision Detected'),
+            content: const Text(
+              'This is a test callback from CollisionDetectionService.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text("I'm Safe"),
+              ),
+            ],
+          );
+        },
+      ).then((_) {
+        _isCollisionDialogShowing = false;
+      });
+    });
 
     _searchController.addListener(() {
       final query = _searchController.text.toLowerCase().trim();
@@ -577,6 +615,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
 
   @override
   void dispose() {
+    _collisionService.stopListening();
     _positionStream?.cancel();
     if (_cameraController?.value.isStreamingImages ?? false) {
       _cameraController?.stopImageStream();
