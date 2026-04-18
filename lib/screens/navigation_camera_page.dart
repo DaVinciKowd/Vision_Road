@@ -96,7 +96,7 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
       print("Collision callback triggered");
     });*/
 
-    _collisionService.startListening(() {
+    _collisionService.startListening((collisionData) {
       if (!mounted || _isCollisionDialogShowing) return;
 
       _isCollisionDialogShowing = true;
@@ -107,8 +107,13 @@ class _NavigationCameraPageState extends State<NavigationCameraPage> {
         builder: (context) {
           return AlertDialog(
             title: const Text('Possible Collision Detected'),
-            content: const Text(
-              'This is a test callback from CollisionDetectionService.',
+            content: Text( 
+              'Possible collision values detected.\n\n'
+              'Max ALA: ${collisionData.maxAccelG.toStringAsFixed(2)} g\n'
+              'ALA Threshold: ${collisionData.accelThresholdG.toStringAsFixed(2)} g\n'
+              'Max Gyroscope: ${collisionData.maxGyro.toStringAsFixed(2)}\n'
+              'Gyro Threshold: ${collisionData.gyroThreshold.toStringAsFixed(2)}\n'
+              'Latest ALA After Delay: ${collisionData.latestAccelAfterDelayG.toStringAsFixed(2)} g',
             ),
             actions: [
               TextButton(

@@ -2,6 +2,22 @@ import 'dart:async';
 import 'dart:math';
 import 'package:sensors_plus/sensors_plus.dart';
 
+class CollisionTriggerData {
+  final double maxAccelG;
+  final double maxGyro;
+  final double accelThresholdG;
+  final double gyroThreshold;
+  final double latestAccelAfterDelayG;
+
+  CollisionTriggerData({
+    required this.maxAccelG,
+    required this.maxGyro,
+    required this.accelThresholdG,
+    required this.gyroThreshold,
+    required this.latestAccelAfterDelayG,
+  });
+}
+
 class CollisionDetectionService {
   StreamSubscription<UserAccelerometerEvent>?
       _accelerometerSubscription;
@@ -17,12 +33,12 @@ class CollisionDetectionService {
 
   /// THRESHOLDS (adjustable for testing)
   /// You should calibrate these after real-world testing
-  static const double accelThreshold = 5.0;
+  static const double accelThreshold = 5.0; // in g
   static const double gyroThreshold = 0.3;
 
   /// Inactivity threshold after impact
   /// Lower movement after collision helps confirm accident
-  static const double inactivityThreshold = 1.0;
+  static const double inactivityThreshold = 1.0; // in g
 
   /// Cooldown duration
   static const int cooldownSeconds = 10;
@@ -34,33 +50,41 @@ class CollisionDetectionService {
   static const int inactivityCheckDelaySeconds = 3;
 
   /// Callback when collision is confirmed
-  Function? _onCollisionDetected;
+  Function(CollisionTriggerData)? _onCollisionDetected;
+
+  /// Stores the values that originally triggered the possible collision
+  double _lastTriggeredMaxAccelG = 0.0;
+  double _lastTriggeredMaxGyro = 0.0;
 
   /// START LISTENING
-  void startListening(Function onCollisionDetected) {
+  void startListening(
+    Function(CollisionTriggerData) onCollisionDetected,
+  ) {
     _onCollisionDetected = onCollisionDetected;
 
     /// Using userAccelerometerEvents so gravity is removed
     _accelerometerSubscription =
         userAccelerometerEvents.listen((event) {
-      final value = sqrt(
+      final alaMs2 = sqrt(
         event.x * event.x +
             event.y * event.y +
             event.z * event.z,
       );
 
+      final alaG = alaMs2 / 9.80665;
+
+      if (DateTime.now().millisecond % 500 < 50) {
+        print("ALA (m/s²): $alaMs2 | ALA (g): $alaG");
+      }
+
       _accelBuffer.add(
         _SensorSample(
           DateTime.now(),
-          value,
+          alaG,
         ),
       );
 
       _cleanupOldData();
-
-      /*print(
-        "User Acceleration Force: $value",
-      );*/
 
       _checkCollision();
     });
@@ -81,10 +105,6 @@ class CollisionDetectionService {
       );
 
       _cleanupOldData();
-
-      /*print(
-        "Gyroscope Rotation: $value",
-      );*/
 
       _checkCollision();
     });
@@ -127,7 +147,7 @@ class CollisionDetectionService {
       return;
     }
 
-    final double maxAccel =
+    final double maxAccelG =
         _accelBuffer
             .map((e) => e.value)
             .reduce(max);
@@ -138,14 +158,14 @@ class CollisionDetectionService {
             .reduce(max);
 
     final bool strongImpact =
-        maxAccel > accelThreshold;
+        maxAccelG > accelThreshold;
 
     final bool abnormalRotation =
         maxGyro > gyroThreshold;
 
     print("---- COLLISION DEBUG ----");
     print(
-      "maxAccel: $maxAccel (threshold: $accelThreshold)",
+      "maxAccel: $maxAccelG g (threshold: $accelThreshold g)",
     );
     print(
       "maxGyro: $maxGyro (threshold: $gyroThreshold)",
@@ -168,6 +188,10 @@ class CollisionDetectionService {
         "🚨 Possible Collision Detected",
       );
 
+      /// Save the values that triggered the detection
+      _lastTriggeredMaxAccelG = maxAccelG;
+      _lastTriggeredMaxGyro = maxGyro;
+
       _isPotentialCollisionDetected = true;
 
       _checkInactivityAfterImpact();
@@ -184,8 +208,7 @@ class CollisionDetectionService {
 
     Future.delayed(
       const Duration(
-        seconds:
-            inactivityCheckDelaySeconds,
+        seconds: inactivityCheckDelaySeconds,
       ),
       () {
         if (_accelBuffer.isEmpty) {
@@ -202,7 +225,7 @@ class CollisionDetectionService {
                 inactivityThreshold;
 
         print(
-          "Latest Acceleration After Delay: $latestAccel",
+          "Latest Acceleration After Delay: $latestAccel g",
         );
         print(
           "Inactivity Detected: $inactivityDetected",
@@ -213,7 +236,7 @@ class CollisionDetectionService {
             "✅ Collision Confirmed",
           );
 
-          _triggerCollision();
+          _triggerCollision(latestAccel);
         } else {
           print(
             "❌ False Positive Ignored",
@@ -228,12 +251,21 @@ class CollisionDetectionService {
 
   /// FINAL TRIGGER
   /// Calls your emergency dialog / SMS workflow
-  void _triggerCollision() {
+  void _triggerCollision(double latestAccelAfterDelayG) {
     _isCooldownActive = true;
     _isPotentialCollisionDetected =
         false;
 
-    _onCollisionDetected?.call();
+    _onCollisionDetected?.call(
+      CollisionTriggerData(
+        maxAccelG: _lastTriggeredMaxAccelG,
+        maxGyro: _lastTriggeredMaxGyro,
+        accelThresholdG: accelThreshold,
+        gyroThreshold: gyroThreshold,
+        latestAccelAfterDelayG:
+            latestAccelAfterDelayG,
+      ),
+    );
 
     print(
       "Cooldown started ($cooldownSeconds seconds)",
@@ -263,7 +295,7 @@ class CollisionDetectionService {
     _accelBuffer.add(
       _SensorSample(
         DateTime.now(),
-        80.0,
+        6.0,
       ),
     );
 
